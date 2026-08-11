@@ -1,0 +1,14 @@
+# Core numerics
+numpy>=1.23,<2.0
+scipy>=1.9
+
+# Config + plotting + logging
+pyyaml>=6.0
+matplotlib>=3.6
+pandas>=1.5
+
+# Testing
+pytest>=7.2
+
+#   cd ../gym-pybullet-drones
+#   pip install -e .
