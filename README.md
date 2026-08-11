@@ -80,10 +80,18 @@ where `i, j, k` are imaginary units satisfying `i² = j² = k² = ijk = -1`. Equ
 
 Quaternion multiplication is **not commutative** (`p ∘ q ≠ q ∘ p` in general) — order matters, just like it does for 3D rotations. Given `p = (p, p₀)` and `q = (q, q₀)`, the quaternion product can be written compactly in matrix form as:
 
-```
-p ∘ q = [ S(p) + I p₀     p  ] [ q  ]
-        [       -pᵀ      p₀ ] [ q₀ ]
-```
+
+$$
+p \circ q =
+\begin{bmatrix}
+S(p) + p_0 I & p \\
+-p^{\mathsf{T}} & p_0
+\end{bmatrix}
+\begin{bmatrix}
+q \\
+q_0
+\end{bmatrix}
+$$
 
 where `S(·)` is the **skew-symmetric matrix** built from a vector such that `S(v) w = v × w` — i.e., matrix multiplication by `S(v)` reproduces the cross product with `v`.
 
@@ -272,11 +280,11 @@ This two-layer structure — a kinematic dual-quaternion controller on top, and 
 
 With the single-vehicle controller established, the formation law simply defines **what pose each vehicle should track**:
 
-- **Leader:** follows an analytically defined trajectory `p_{Ld}(t)` (position) with a freely-chosen attitude `q̄_{Ld}(t)`, since the platform is omnidirectional in attitude. Together these form the leader's desired dual quaternion:
+- **Leader:** follows an analytically defined trajectory $p_{Ld}(t)$ (position) with a freely-chosen attitude $q_{Ld}(t)$, since the platform is omnidirectional in attitude. Together these form the leader's desired dual quaternion:
   $$Q_{Ld} = \bar q_{Ld}(t) + \varepsilon\,\tfrac{1}{2}\, \bar p_{Ld}(t) \circ \bar q_{Ld}(t)$$
 - **Follower:** tracks the leader's *measured* (not planned) position, offset by a fixed or time-varying vector `f(t)` that keeps the two vehicles safely apart:
   $$p_{Fd}[k] = p_L[k] + f(t)$$
-  The follower's desired attitude can either be set independently or copied from the leader (the latter is what the paper's experiments use: `q̄_{Fd} = q̄_L`).
+  The follower's desired attitude can either be set independently or copied from the leader (the latter is what the paper's experiments use: $q̄_{Fd} = q̄_L$).
 
 Because the follower's desired trajectory is derived by (numerically) differentiating noisy real-time measurements of the leader, the **follower's tracking is inherently noisier** than the leader's — an effect visible in both the paper's and this project's results (see Section 13).
 
