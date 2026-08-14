@@ -1,0 +1,27 @@
+# Reference config documenting the paper's Section V parameters.
+# (dq_control/gains.py and dq_control/trajectories.py are the source of truth
+#  used by the code; this file is for humans / bookkeeping / future CLI use.)
+
+trajectory:
+  type: simplified_lemniscate
+  r_x: 0.85          # m
+  r_y: 0.65           # m
+  w_d: 0.20943951      # pi/15 rad/s
+  x0: 1.51            # m
+  y0: -0.27            # m
+  z0: 1.0              # m
+  x_offset: 1.85       # m, follower offset along x, eq. (16)
+
+simulation:
+  duration_sec: 30
+  pyb_freq: 240         # physics steps / s
+  ctrl_freq: 48          # controller + low-level PID steps / s
+  drone_model: CF2X       # closest available model to the paper's Bebop 2
+
+experiments:
+  proportional:
+    description: "Sec V-A: proportional-only gains, all integral gains = 0"
+  complex_eig:
+    description: "Sec V-B: integral gains chosen so M_omega, M_v have complex eigenvalues"
+  real_eig:
+    description: "Sec V-C: integral gains chosen so M_omega, M_v have only real eigenvalues (best performance)"
