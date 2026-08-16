@@ -28,7 +28,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import os
 import sys
+import collections
+import collections.abc
 import numpy as np
+
+# Py3.10+ moved these ABCs out of `collections` into `collections.abc`.
+# The old `gym` package (dependency of gym_pybullet_drones 0.6.0 / v1.0.0)
+# still references collections.Mapping directly, so restore the old aliases
+# before anything downstream imports `gym`.
+for _name in ("Mapping", "MutableMapping", "Sequence", "Set", "Callable"):
+    if not hasattr(collections, _name) and hasattr(collections.abc, _name):
+        setattr(collections, _name, getattr(collections.abc, _name))
 
 # --- make sure gym-pybullet-drones is importable -----------------------------
 def _add_sibling_to_path():
@@ -238,7 +248,11 @@ class LeaderFollowerSim:
         )}
 
         obs = self._reset_env()
-        action = np.zeros((2, 4))
+        # Some gym-pybullet-drones versions (e.g. 0.6.0 / v1.0.0) use a Dict
+        # action space keyed by *string* drone indices ("0", "1", ...) instead
+        # of a plain (NUM_DRONES, 4) array. Detect and build the right container.
+        action_is_dict = hasattr(self.env.action_space, "spaces")
+        action = {"0": np.zeros(4), "1": np.zeros(4)} if action_is_dict else np.zeros((2, 4))
 
         for step in range(num_steps):
             t = step * self.ctrl_timestep
@@ -269,18 +283,24 @@ class LeaderFollowerSim:
             target_pos_F, target_rpy_F = self._target_from_twist(Q_follower, omega_cmd_F, v_cmd_F)
 
             # --- low-level PID -> RPMs (stands in for the Bebop firmware) ---
-            action[0, :], _, _ = self.pid[0].computeControlFromState(
+            rpm0, _, _ = self.pid[0].computeControlFromState(
                 control_timestep=self.ctrl_timestep,
                 state=_get_drone_obs(obs, 0),
                 target_pos=target_pos_L,
                 target_rpy=target_rpy_L,
             )
-            action[1, :], _, _ = self.pid[1].computeControlFromState(
+            rpm1, _, _ = self.pid[1].computeControlFromState(
                 control_timestep=self.ctrl_timestep,
                 state=_get_drone_obs(obs, 1),
                 target_pos=target_pos_F,
                 target_rpy=target_rpy_F,
             )
+            if action_is_dict:
+                action["0"] = rpm0
+                action["1"] = rpm1
+            else:
+                action[0, :] = rpm0
+                action[1, :] = rpm1
 
             obs = self._step_env(action)
 
