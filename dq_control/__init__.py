@@ -2,7 +2,10 @@ from .quaternion import Quaternion
 from .dual_quaternion import DualQuaternion, Twist, pose_derivative, integrate_pose
 from .controller import ControllerGains, ControllerState, KinematicController, pose_error
 from .gains import get_gains, EXPERIMENTS
-from .trajectories import LeaderTrajectory, FollowerTrajectory, LemniscateParams
+from .trajectories import (
+    LeaderTrajectory, FollowerTrajectory, LemniscateParams,
+    PotatoChipTrajectory, PotatoChipParams,
+)
 
 __all__ = [
     "Quaternion",
@@ -10,4 +13,5 @@ __all__ = [
     "ControllerGains", "ControllerState", "KinematicController", "pose_error",
     "get_gains", "EXPERIMENTS",
     "LeaderTrajectory", "FollowerTrajectory", "LemniscateParams",
+    "PotatoChipTrajectory", "PotatoChipParams",
 ]

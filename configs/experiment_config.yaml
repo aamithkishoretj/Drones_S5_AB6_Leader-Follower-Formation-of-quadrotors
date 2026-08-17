@@ -1,16 +1,28 @@
-# Reference config documenting the paper's Section V parameters.
+# Reference config documenting the paper's Section V parameters, plus the
+# custom "potato chip" trajectory option.
 # (dq_control/gains.py and dq_control/trajectories.py are the source of truth
 #  used by the code; this file is for humans / bookkeeping / future CLI use.)
 
 trajectory:
-  type: simplified_lemniscate
-  r_x: 0.85          # m
-  r_y: 0.65           # m
-  w_d: 0.20943951      # pi/15 rad/s
-  x0: 1.51            # m
-  y0: -0.27            # m
-  z0: 1.0              # m
-  x_offset: 1.85       # m, follower offset along x, eq. (16)
+  lemniscate:          # paper's default (Sec. V), select with --trajectory lemniscate
+    type: simplified_lemniscate
+    r_x: 0.85          # m
+    r_y: 0.65           # m
+    w_d: 0.20943951      # pi/15 rad/s
+    x0: 1.51            # m
+    y0: -0.27            # m
+    z0: 1.0              # m
+  potato_chip:         # saddle / Pringle-shaped 3D curve, select with --trajectory potato_chip
+    type: saddle_circle
+    r: 0.85             # circular footprint radius, m
+    w: 0.20943951         # angular speed around the circle, rad/s
+    z_amp: 0.35           # peak height of the z ripple, m
+    k: 2                  # saddle lobes per revolution (2 = classic chip shape)
+    phase: 0.0             # phase offset of the z ripple, rad
+    x0: 1.51
+    y0: -0.27
+    z0: 1.0
+  x_offset: 1.85       # m, follower offset along x, eq. (16) -- applies to any trajectory
 
 simulation:
   duration_sec: 30

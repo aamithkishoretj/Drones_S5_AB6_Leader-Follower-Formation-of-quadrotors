@@ -1,22 +1,4 @@
-"""
-Reference trajectories used in Section V of the paper.
 
-Leader: simplified Lemniscate curve
-    x_Ld(t) = r_x sin(w_d t) + x0
-    y_Ld(t) = r_y sin(2 w_d t) + y0
-    z_Ld(t) = z0
-with yaw always tangent to the trajectory:
-    psi_Ld = atan2(y_Ld_dot, x_Ld_dot)                                  (17)
-
-Follower: replicates the *current measured* leader position with a fixed
-offset along x to avoid collisions (eq. 16):
-    p_Fd[k] = p_L[k] + [x_offset, 0, 0]
-with q_Fd = q_L (follower attitude tracks the leader's current attitude).
-
-Default numeric parameters match the paper (Sec. V, end of page 6):
-    r_x = 0.85 m, r_y = 0.65 m, w_d = pi/15 rad/s,
-    [x0, y0, z0] = [1.51, -0.27, 1.0] m, x_offset = 1.85 m
-"""
 
 from __future__ import annotations
 from dataclasses import dataclass
@@ -93,15 +75,101 @@ class LeaderTrajectory:
         return self.angular_velocity(t), self.velocity(t)
 
 
+@dataclass
+class PotatoChipParams:
+    r: float = 0.85           # radius of the circular footprint in (x, y), m
+    w: float = np.pi / 15     # angular speed around the circle, rad/s
+    z_amp: float = 0.35       # peak height of the saddle ripple, m
+    k: int = 2                # saddle lobes per revolution (2 = classic Pringle/chip shape)
+    phase: float = 0.0        # phase offset of the z ripple relative to theta, rad
+    x0: float = 1.51
+    y0: float = -0.27
+    z0: float = 1.0
+
+
+class PotatoChipTrajectory:
+    """Leader traces a circle in (x, y) while z rides a cos(k*theta) ripple,
+    tracing out a saddle ("Pringle" / potato-chip) shaped 3D curve.
+
+        theta(t) = w t
+        x(t) = x0 + r cos(theta)
+        y(t) = y0 + r sin(theta)
+        z(t) = z0 + z_amp cos(k theta + phase)
+
+    Same six-method contract as LeaderTrajectory, so it's a drop-in
+    replacement anywhere a leader_traj is accepted.
+    """
+
+    def __init__(self, params: PotatoChipParams = PotatoChipParams()):
+        self.p = params
+
+    def _theta(self, t: float) -> float:
+        return self.p.w * t
+
+    def position(self, t: float) -> np.ndarray:
+        p = self.p
+        th = self._theta(t)
+        return np.array([
+            p.x0 + p.r * np.cos(th),
+            p.y0 + p.r * np.sin(th),
+            p.z0 + p.z_amp * np.cos(p.k * th + p.phase),
+        ])
+
+    def velocity(self, t: float) -> np.ndarray:
+        p = self.p
+        th = self._theta(t)
+        return np.array([
+            -p.r * p.w * np.sin(th),
+            p.r * p.w * np.cos(th),
+            -p.z_amp * p.k * p.w * np.sin(p.k * th + p.phase),
+        ])
+
+    def acceleration(self, t: float) -> np.ndarray:
+        p = self.p
+        th = self._theta(t)
+        return np.array([
+            -p.r * p.w ** 2 * np.cos(th),
+            -p.r * p.w ** 2 * np.sin(th),
+            -p.z_amp * (p.k * p.w) ** 2 * np.cos(p.k * th + p.phase),
+        ])
+
+    def yaw(self, t: float) -> float:
+        """Tangent heading in the horizontal (x, y) plane, same convention as
+        LeaderTrajectory.yaw -- the z ripple doesn't drive yaw, only xy motion does."""
+        v = self.velocity(t)
+        return np.arctan2(v[1], v[0])
+
+    def attitude(self, t: float, dt: float = 1e-3) -> Quaternion:
+        psi = self.yaw(t)
+        return Quaternion((0.0, 0.0, np.sin(psi / 2.0)), np.cos(psi / 2.0))
+
+    def angular_velocity(self, t: float, dt: float = 1e-3) -> np.ndarray:
+        psi_p = self.yaw(t + dt)
+        psi_m = self.yaw(t - dt)
+        psi_dot = (psi_p - psi_m) / (2 * dt)
+        return np.array([0.0, 0.0, psi_dot])
+
+    def desired_pose(self, t: float) -> DualQuaternion:
+        return DualQuaternion.from_pose(self.position(t), self.attitude(t))
+
+    def desired_twist(self, t: float):
+        return self.angular_velocity(t), self.velocity(t)
+
+
 class FollowerTrajectory:
     """Follower desired trajectory, defined from the *measured* leader pose
     plus a fixed offset (eq. 16). Since it depends on measurements, velocity
     is obtained by numerically differentiating consecutive leader positions
-    (as done in the paper) rather than analytically.
+    (as done in the paper) rather than analytically. An optional exponential
+    smoothing filter reduces the noise this differentiation introduces.
     """
 
-    def __init__(self, x_offset: float = 1.85):
+    def __init__(self, x_offset: float = 1.85, vel_smoothing: float = 1.0):
+        """vel_smoothing in (0, 1]: 1.0 = raw finite difference (paper default),
+        lower values trade responsiveness for a smoother (less noisy) velocity
+        estimate -- useful when the leader's own tracking is jittery."""
         self.x_offset = x_offset
+        self.vel_smoothing = vel_smoothing
         self._prev_leader_pos = None
         self._prev_leader_vel = None
         self._prev_t = None
@@ -122,12 +190,12 @@ class FollowerTrajectory:
         if self._prev_leader_pos is None:
             vel_d = np.zeros(3)
         else:
-            vel_d = (leader_pos - self._prev_leader_pos) / dt
-
-        if self._prev_leader_vel is None:
-            acc_d = np.zeros(3)
-        else:
-            acc_d = (vel_d - self._prev_leader_vel) / dt  # noqa: F841 (kept for future feed-fwd use)
+            raw_vel = (leader_pos - self._prev_leader_pos) / dt
+            if self._prev_leader_vel is None:
+                vel_d = raw_vel
+            else:
+                a = self.vel_smoothing
+                vel_d = a * raw_vel + (1 - a) * self._prev_leader_vel
 
         self._prev_leader_pos = leader_pos.copy()
         self._prev_leader_vel = vel_d.copy()
