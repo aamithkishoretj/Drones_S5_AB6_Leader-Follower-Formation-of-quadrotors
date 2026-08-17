@@ -96,7 +96,11 @@ class SimConfig:
     ctrl_freq: int = 48          # our kinematic controller + low-level PID steps / s
     gui: bool = False
     drone_model: "DroneModel" = None  # filled in __post_init__ (avoids import at module load)
-    x_offset: float = 1.85       # follower offset along x, eq. (16)
+    x_offset: float = 1.85       # follower offset magnitude, eq. (16)
+    follower_offset_mode: str = "world"      # 'world' (paper eq. 16) or 'body' (trails behind heading)
+    follower_heading_source: str = "velocity"  # 'velocity' (robust) or 'attitude' (paper-eq.-16-style) -- see FollowerTrajectory docstring
+    follower_heading_smoothing: float = 0.15    # smoothing for the velocity-derived heading estimate
+    follower_vel_smoothing: float = 1.0          # 1.0 = raw diff (paper default); lower = smoother
     output_folder: str = "results"
 
     def __post_init__(self):
@@ -171,15 +175,24 @@ class LeaderFollowerSim:
     ):
         self.cfg = cfg
         self.leader_traj = leader_traj or LeaderTrajectory()
-        self.follower_traj = FollowerTrajectory(x_offset=cfg.x_offset)
+        self.follower_traj = FollowerTrajectory(
+            x_offset=cfg.x_offset,
+            vel_smoothing=cfg.follower_vel_smoothing,
+            offset_mode=cfg.follower_offset_mode,
+            heading_source=cfg.follower_heading_source,
+            heading_smoothing=cfg.follower_heading_smoothing,
+        )
 
         self.leader_ctrl = KinematicController(gains["leader"])
         self.follower_ctrl = KinematicController(gains["follower"])
 
         init_leader = self.leader_traj.position(0.0)
-        init_follower = init_leader + np.array([cfg.x_offset, 0.0, 0.0])
+        init_leader_att = self.leader_traj.attitude(0.0)
+        init_follower = self.follower_traj.desired_position(init_leader, init_leader_att)
         self.initial_xyzs = np.array([init_leader, init_follower])
         self.initial_rpys = np.zeros((2, 3))
+        if cfg.follower_offset_mode == "body":
+            self.initial_rpys[1] = init_leader_att.to_rpy()  # spawn facing the same heading
 
         common_kwargs = dict(
             drone_model=cfg.drone_model,

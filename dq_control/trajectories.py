@@ -1,4 +1,43 @@
+"""
+Reference trajectories used in Section V of the paper, plus custom shapes.
 
+Leader: simplified Lemniscate curve
+    x_Ld(t) = r_x sin(w_d t) + x0
+    y_Ld(t) = r_y sin(2 w_d t) + y0
+    z_Ld(t) = z0
+with yaw always tangent to the trajectory:
+    psi_Ld = atan2(y_Ld_dot, x_Ld_dot)                                  (17)
+
+Follower: replicates the *current measured* leader position with a fixed
+offset along x to avoid collisions (eq. 16):
+    p_Fd[k] = p_L[k] + [x_offset, 0, 0]
+with q_Fd = q_L (follower attitude tracks the leader's current attitude).
+
+Default numeric parameters match the paper (Sec. V, end of page 6):
+    r_x = 0.85 m, r_y = 0.65 m, w_d = pi/15 rad/s,
+    [x0, y0, z0] = [1.51, -0.27, 1.0] m, x_offset = 1.85 m
+
+Also included: PotatoChipTrajectory, a "Pringle"/hyperbolic-paraboloid-style
+saddle curve -- the leader traces a circle in (x, y) while z oscillates at
+twice the angular rate and out of phase with the radius direction, i.e.
+z(theta) = z0 + z_amp * cos(k * theta) with k=2. This is the standard
+parametric trick for a saddle surface restricted to a circular boundary
+(z ~ x^2 - y^2 on the circle x=r cos(theta), y=r sin(theta)), which is
+exactly the shape of a potato chip / Pringle.
+
+Every trajectory class in this file implements the same six-method contract
+used throughout the codebase, so any of them can be passed as `leader_traj=`
+to `envs.LeaderFollowerSim` interchangeably:
+
+    position(t) -> np.array([x, y, z])
+    velocity(t) -> np.array([vx, vy, vz])
+    acceleration(t) -> np.array([ax, ay, az])
+    yaw(t) -> float (rad)
+    attitude(t) -> Quaternion
+    angular_velocity(t) -> np.array([wx, wy, wz])
+    desired_pose(t) -> DualQuaternion
+    desired_twist(t) -> (omega_d, v_d)
+"""
 
 from __future__ import annotations
 from dataclasses import dataclass
@@ -158,47 +197,150 @@ class PotatoChipTrajectory:
 
 class FollowerTrajectory:
     """Follower desired trajectory, defined from the *measured* leader pose
-    plus a fixed offset (eq. 16). Since it depends on measurements, velocity
-    is obtained by numerically differentiating consecutive leader positions
-    (as done in the paper) rather than analytically. An optional exponential
-    smoothing filter reduces the noise this differentiation introduces.
+    plus an offset (generalizes eq. 16). Since it depends on measurements,
+    velocity is obtained by numerically differentiating the resulting desired
+    follower position (as done in the paper, extended to also capture the
+    motion induced by a rotating offset -- see offset_mode='body' below).
+    An optional exponential smoothing filter reduces the noise differentiation
+    introduces.
+
+    offset_mode:
+      'world' (paper default, eq. 16): pos_Fd = p_L + [x_offset, 0, 0], a
+          FIXED offset in the world frame. This matches the paper exactly and
+          works well for trajectories that predominantly move along +x (like
+          the lemniscate), but for a curving/circular path (e.g. potato_chip)
+          it does NOT keep the follower "behind" the leader -- as the leader's
+          heading rotates, a world-frame offset ends up beside or ahead of it.
+      'body': pos_Fd = p_L + R(heading) @ [-x_offset, 0, 0], i.e. the offset
+          points opposite to the leader's direction of travel, keeping the
+          follower trailing directly behind it regardless of trajectory shape.
+          Where "heading" comes from is controlled by heading_source below.
+
+    heading_source (only used when offset_mode='body'):
+      'velocity' (default): heading = atan2(vy, vx) from a smoothed finite-
+          difference estimate of the leader's own MEASURED position over time.
+          This is robust to the leader's yaw-*tracking* error: it reflects
+          where the leader is actually, geometrically going, independent of
+          how well its onboard attitude controller is tracking a commanded
+          yaw. This matters because yaw tracking can lag substantially
+          (observed: several seconds of phase lag in practice), and rotating
+          a large offset vector (~1-2 m) by an erroneous yaw angle turns a
+          modest angular error into a large positional error for the
+          follower's reference -- which then destabilizes its own tracking.
+      'attitude': heading = yaw extracted from the leader's measured attitude
+          quaternion (roll/pitch discarded so transient tilting for
+          translational control doesn't contaminate the trailing direction).
+          Simpler, but sensitive to the leader's own yaw-tracking error as
+          described above -- prefer 'velocity' unless you have a specific
+          reason not to.
     """
 
-    def __init__(self, x_offset: float = 1.85, vel_smoothing: float = 1.0):
+    def __init__(
+        self,
+        x_offset: float = 1.85,
+        vel_smoothing: float = 1.0,
+        offset_mode: str = "world",
+        heading_source: str = "velocity",
+        heading_smoothing: float = 0.15,
+    ):
         """vel_smoothing in (0, 1]: 1.0 = raw finite difference (paper default),
         lower values trade responsiveness for a smoother (less noisy) velocity
-        estimate -- useful when the leader's own tracking is jittery."""
+        estimate for the follower's own translational feedforward.
+        heading_smoothing in (0, 1]: smoothing applied specifically to the
+        velocity-derived heading estimate used in 'body' mode -- lower values
+        reject more high-frequency noise at the cost of responsiveness. Kept
+        separate from vel_smoothing because the offset radius amplifies
+        heading noise into position error more than translational noise does."""
+        if offset_mode not in ("world", "body"):
+            raise ValueError(f"offset_mode must be 'world' or 'body', got {offset_mode!r}")
+        if heading_source not in ("velocity", "attitude"):
+            raise ValueError(f"heading_source must be 'velocity' or 'attitude', got {heading_source!r}")
         self.x_offset = x_offset
         self.vel_smoothing = vel_smoothing
-        self._prev_leader_pos = None
-        self._prev_leader_vel = None
+        self.offset_mode = offset_mode
+        self.heading_source = heading_source
+        self.heading_smoothing = heading_smoothing
+        self._prev_pos_d = None
+        self._prev_vel_d = None
         self._prev_t = None
+        self._prev_leader_pos_for_heading = None
+        self._leader_vel_filt = None
+        self._heading = 0.0
 
     def reset(self):
-        self._prev_leader_pos = None
-        self._prev_leader_vel = None
+        self._prev_pos_d = None
+        self._prev_vel_d = None
         self._prev_t = None
+        self._prev_leader_pos_for_heading = None
+        self._leader_vel_filt = None
+        self._heading = 0.0
+
+    @staticmethod
+    def _yaw_from_attitude(q: Quaternion) -> float:
+        return q.to_rpy()[2]
+
+    def _update_heading_from_velocity(self, leader_pos: np.ndarray, dt: float):
+        """Smoothed atan2(vy, vx) of the leader's own measured (x, y) motion."""
+        if self._prev_leader_pos_for_heading is None:
+            raw_vel_xy = np.zeros(2)
+        else:
+            raw_vel_xy = (leader_pos[:2] - self._prev_leader_pos_for_heading[:2]) / dt
+
+        if self._leader_vel_filt is None:
+            self._leader_vel_filt = raw_vel_xy
+        else:
+            a = self.heading_smoothing
+            self._leader_vel_filt = a * raw_vel_xy + (1 - a) * self._leader_vel_filt
+
+        self._prev_leader_pos_for_heading = leader_pos.copy()
+
+        speed = np.linalg.norm(self._leader_vel_filt)
+        if speed > 1e-3:  # hold last known heading while nearly stationary (avoid atan2 noise at rest)
+            self._heading = float(np.arctan2(self._leader_vel_filt[1], self._leader_vel_filt[0]))
+
+    def desired_position(self, leader_pos: np.ndarray, leader_attitude: Quaternion, heading: float = None) -> np.ndarray:
+        """pos_Fd for the current instant, given the *measured* leader pose.
+
+        `heading` (radians) overrides the offset direction directly when given
+        -- used internally by update() to pass the velocity-derived heading.
+        If omitted, falls back to the yaw extracted from leader_attitude
+        (still yaw-only, i.e. roll/pitch-safe, but see heading_source docs
+        above for why the velocity-derived heading is preferred in practice).
+        """
+        if self.offset_mode == "body":
+            h = heading if heading is not None else self._yaw_from_attitude(leader_attitude)
+            yaw_only = Quaternion((0.0, 0.0, np.sin(h / 2.0)), np.cos(h / 2.0))
+            offset = yaw_only.rotate(np.array([-self.x_offset, 0.0, 0.0]))
+        else:
+            offset = np.array([self.x_offset, 0.0, 0.0])
+        return leader_pos + offset
 
     def update(self, t: float, leader_pos: np.ndarray, leader_attitude: Quaternion, dt: float):
         """Call once per control step with the *measured* leader state.
 
         Returns (Qd_follower, omega_d, v_d) suitable for KinematicController.
         """
-        offset = np.array([self.x_offset, 0.0, 0.0])
-        pos_d = leader_pos + offset
+        if self.offset_mode == "body" and self.heading_source == "velocity":
+            self._update_heading_from_velocity(leader_pos, dt)
+            pos_d = self.desired_position(leader_pos, leader_attitude, heading=self._heading)
+        else:
+            pos_d = self.desired_position(leader_pos, leader_attitude)
 
-        if self._prev_leader_pos is None:
+        # Differentiate pos_d itself (not just leader_pos) so that, in 'body'
+        # mode, the velocity induced by the offset vector rotating along with
+        # the leader's changing heading is correctly captured too.
+        if self._prev_pos_d is None:
             vel_d = np.zeros(3)
         else:
-            raw_vel = (leader_pos - self._prev_leader_pos) / dt
-            if self._prev_leader_vel is None:
+            raw_vel = (pos_d - self._prev_pos_d) / dt
+            if self._prev_vel_d is None:
                 vel_d = raw_vel
             else:
                 a = self.vel_smoothing
-                vel_d = a * raw_vel + (1 - a) * self._prev_leader_vel
+                vel_d = a * raw_vel + (1 - a) * self._prev_vel_d
 
-        self._prev_leader_pos = leader_pos.copy()
-        self._prev_leader_vel = vel_d.copy()
+        self._prev_pos_d = pos_d.copy()
+        self._prev_vel_d = vel_d.copy()
         self._prev_t = t
 
         # Follower attitude tracks the leader's current attitude (q_Fd = q_L).

@@ -39,7 +39,32 @@ def parse_args():
     p.add_argument("--ctrl_freq", type=int, default=48, help="Controller / PID steps / s.")
     p.add_argument("--gui", action="store_true", help="Show the PyBullet GUI.")
     p.add_argument("--output", type=str, default=os.path.join(_ROOT, "results"))
-    p.add_argument("--x_offset", type=float, default=1.85, help="Follower offset along x, m (eq. 16).")
+    p.add_argument("--x_offset", type=float, default=1.85, help="Follower offset magnitude, m (eq. 16).")
+    p.add_argument(
+        "--follower_offset_mode", choices=["world", "body", "auto"], default="auto",
+        help="'world' = fixed [x_offset,0,0] in the world frame (paper eq. 16 exactly, "
+             "good for the lemniscate). 'body' = offset rotated into the leader's current "
+             "heading so the follower always trails directly behind it (needed for curved "
+             "paths like potato_chip). 'auto' (default) picks 'world' for --trajectory "
+             "lemniscate and 'body' for --trajectory potato_chip.",
+    )
+    p.add_argument(
+        "--follower_heading_source", choices=["velocity", "attitude"], default="velocity",
+        help="(only used with --follower_offset_mode body) 'velocity' (default, robust) "
+             "derives the trailing direction from the leader's smoothed measured motion, "
+             "independent of yaw-tracking lag. 'attitude' uses the leader's measured yaw "
+             "directly -- simpler but sensitive to yaw-tracking error.",
+    )
+    p.add_argument(
+        "--follower_heading_smoothing", type=float, default=0.15,
+        help="(0,1]: smoothing for the velocity-derived heading estimate. Lower = more "
+             "noise rejection but slower to respond to real turns.",
+    )
+    p.add_argument(
+        "--follower_vel_smoothing", type=float, default=1.0,
+        help="(0,1]: 1.0 = raw finite-difference velocity (paper default), lower = smoother "
+             "but laggier follower velocity estimate.",
+    )
     p.add_argument("--start_x", type=float, default=None, help="Override leader's exact t=0 X position, m (e.g. 0.0 for the origin).")
     p.add_argument("--start_y", type=float, default=None, help="Override leader's exact t=0 Y position, m.")
     p.add_argument("--start_z", type=float, default=None, help="Override leader's exact t=0 Z (altitude) position, m.")
@@ -114,6 +139,10 @@ def build_leader_trajectory(args):
 def main():
     args = parse_args()
 
+    follower_offset_mode = args.follower_offset_mode
+    if follower_offset_mode == "auto":
+        follower_offset_mode = "body" if args.trajectory == "potato_chip" else "world"
+
     gains = get_gains(args.experiment)
     cfg = SimConfig(
         duration_sec=args.duration,
@@ -122,12 +151,16 @@ def main():
         gui=args.gui,
         output_folder=args.output,
         x_offset=args.x_offset,
+        follower_offset_mode=follower_offset_mode,
+        follower_heading_source=args.follower_heading_source,
+        follower_heading_smoothing=args.follower_heading_smoothing,
+        follower_vel_smoothing=args.follower_vel_smoothing,
     )
     leader_traj = build_leader_trajectory(args)
 
     print(
         f"[run_experiment] experiment={args.experiment}  trajectory={args.trajectory}  "
-        f"duration={args.duration}s  gui={args.gui}"
+        f"follower_offset_mode={follower_offset_mode}  duration={args.duration}s  gui={args.gui}"
     )
     sim = LeaderFollowerSim(gains=gains, cfg=cfg, leader_traj=leader_traj)
     log = sim.run()
