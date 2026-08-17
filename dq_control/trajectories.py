@@ -100,10 +100,17 @@ class LeaderTrajectory:
         return Quaternion((0.0, 0.0, np.sin(psi / 2.0)), np.cos(psi / 2.0))
 
     def angular_velocity(self, t: float, dt: float = 1e-3) -> np.ndarray:
-        """Numerically differentiate yaw to get body-frame omega = [0,0,psi_dot]."""
-        psi_p = self.yaw(t + dt)
-        psi_m = self.yaw(t - dt)
-        psi_dot = (psi_p - psi_m) / (2 * dt)
+        """Exact tangent-heading yaw rate, avoiding atan2 +/-pi wrap spikes.
+
+        For psi = atan2(vy, vx),
+            psi_dot = (vx*ay - vy*ax) / (vx^2 + vy^2).
+        """
+        v = self.velocity(t)
+        a = self.acceleration(t)
+        denom = float(v[0] ** 2 + v[1] ** 2)
+        if denom < 1e-12:
+            return np.zeros(3)
+        psi_dot = (v[0] * a[1] - v[1] * a[0]) / denom
         return np.array([0.0, 0.0, psi_dot])
 
     def desired_pose(self, t: float) -> DualQuaternion:
@@ -183,9 +190,13 @@ class PotatoChipTrajectory:
         return Quaternion((0.0, 0.0, np.sin(psi / 2.0)), np.cos(psi / 2.0))
 
     def angular_velocity(self, t: float, dt: float = 1e-3) -> np.ndarray:
-        psi_p = self.yaw(t + dt)
-        psi_m = self.yaw(t - dt)
-        psi_dot = (psi_p - psi_m) / (2 * dt)
+        """Exact tangent-heading yaw rate, avoiding atan2 +/-pi wrap spikes."""
+        v = self.velocity(t)
+        a = self.acceleration(t)
+        denom = float(v[0] ** 2 + v[1] ** 2)
+        if denom < 1e-12:
+            return np.zeros(3)
+        psi_dot = (v[0] * a[1] - v[1] * a[0]) / denom
         return np.array([0.0, 0.0, psi_dot])
 
     def desired_pose(self, t: float) -> DualQuaternion:
@@ -267,13 +278,18 @@ class FollowerTrajectory:
         self._leader_vel_filt = None
         self._heading = 0.0
 
-    def reset(self):
+    def reset(self, initial_heading: float | None = None):
         self._prev_pos_d = None
         self._prev_vel_d = None
         self._prev_t = None
         self._prev_leader_pos_for_heading = None
         self._leader_vel_filt = None
-        self._heading = 0.0
+        # For body-frame offsets, initialize the trailing direction from the
+        # trajectory geometry when available. This is important at t=0 for
+        # circular/saddle trajectories because the simulator can report zero
+        # velocity immediately after reset even though the analytic trajectory
+        # already has a well-defined tangent direction.
+        self._heading = float(initial_heading) if initial_heading is not None else 0.0
 
     @staticmethod
     def _yaw_from_attitude(q: Quaternion) -> float:
@@ -315,21 +331,70 @@ class FollowerTrajectory:
             offset = np.array([self.x_offset, 0.0, 0.0])
         return leader_pos + offset
 
-    def update(self, t: float, leader_pos: np.ndarray, leader_attitude: Quaternion, dt: float):
-        """Call once per control step with the *measured* leader state.
+    def update(
+        self,
+        t: float,
+        leader_pos: np.ndarray,
+        leader_attitude: Quaternion,
+        dt: float,
+        leader_velocity: np.ndarray | None = None,
+        leader_angular_velocity: np.ndarray | None = None,
+        reference_heading: float | None = None,
+        reference_heading_rate: float | None = None,
+    ):
+        """Call once per control step with the measured leader state.
+
+        When simulator velocities are available they are used directly rather
+        than differentiating sampled positions. This gives a better first-step
+        heading estimate and avoids unnecessary numerical noise.
 
         Returns (Qd_follower, omega_d, v_d) suitable for KinematicController.
         """
-        if self.offset_mode == "body" and self.heading_source == "velocity":
-            self._update_heading_from_velocity(leader_pos, dt)
+        offset_vel = np.zeros(3)
+
+        if self.offset_mode == "body":
+            if reference_heading is not None:
+                # For a known analytic leader trajectory (e.g. potato_chip),
+                # use its exact tangent heading rather than noisy simulator
+                # velocity. A 1.85 m formation offset amplifies tiny heading
+                # errors into large false follower velocities.
+                self._heading = float(reference_heading)
+                if reference_heading_rate is not None:
+                    hdot = float(reference_heading_rate)
+                    offset_vel = np.array([
+                        self.x_offset * np.sin(self._heading) * hdot,
+                        -self.x_offset * np.cos(self._heading) * hdot,
+                        0.0,
+                    ])
+            elif self.heading_source == "velocity":
+                if leader_velocity is not None:
+                    lv = np.asarray(leader_velocity, dtype=float).reshape(3)
+                    xy_speed = float(np.linalg.norm(lv[:2]))
+                    if xy_speed > 1e-3:
+                        raw_xy = lv[:2]
+                        if self._leader_vel_filt is None:
+                            self._leader_vel_filt = raw_xy.copy()
+                        else:
+                            a = self.heading_smoothing
+                            self._leader_vel_filt = a * raw_xy + (1.0 - a) * self._leader_vel_filt
+                        self._heading = float(np.arctan2(self._leader_vel_filt[1], self._leader_vel_filt[0]))
+                    self._prev_leader_pos_for_heading = leader_pos.copy()
+                else:
+                    self._update_heading_from_velocity(leader_pos, dt)
+            else:
+                self._heading = self._yaw_from_attitude(leader_attitude)
+
             pos_d = self.desired_position(leader_pos, leader_attitude, heading=self._heading)
         else:
             pos_d = self.desired_position(leader_pos, leader_attitude)
 
-        # Differentiate pos_d itself (not just leader_pos) so that, in 'body'
-        # mode, the velocity induced by the offset vector rotating along with
-        # the leader's changing heading is correctly captured too.
-        if self._prev_pos_d is None:
+        # Build desired translational velocity. For a known analytic body-frame
+        # offset, use the exact derivative of the rotating offset; this avoids
+        # finite-difference spikes at startup. Otherwise retain the existing
+        # measurement-based differentiation used by the paper-style follower.
+        if self.offset_mode == "body" and reference_heading is not None and leader_velocity is not None:
+            vel_d = np.asarray(leader_velocity, dtype=float).reshape(3) + offset_vel
+        elif self._prev_pos_d is None:
             vel_d = np.zeros(3)
         else:
             raw_vel = (pos_d - self._prev_pos_d) / dt
@@ -346,9 +411,12 @@ class FollowerTrajectory:
         # Follower attitude tracks the leader's current attitude (q_Fd = q_L).
         Qd = DualQuaternion.from_pose(pos_d, leader_attitude)
 
-        # Follower has no independent yaw command -> desired body rate taken as 0
-        # (it simply mirrors whatever rotation the leader dual-quaternion encodes
-        # through Qd itself; the controller's proportional/integral terms handle
-        # any residual rotation tracking).
-        omega_d = np.zeros(3)
+        # Since the desired follower attitude is q_L, its feed-forward angular
+        # velocity should also follow the leader. Setting omega_d=0 would force
+        # the follower to chase a moving attitude using feedback only.
+        omega_d = (
+            np.asarray(leader_angular_velocity, dtype=float).reshape(3)
+            if leader_angular_velocity is not None
+            else np.zeros(3)
+        )
         return Qd, omega_d, vel_d

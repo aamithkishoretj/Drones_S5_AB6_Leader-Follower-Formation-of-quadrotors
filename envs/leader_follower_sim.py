@@ -164,6 +164,11 @@ def _vel_from_obs(obs_row: np.ndarray) -> np.ndarray:
     return obs_row[10:13].copy()
 
 
+def _ang_vel_from_obs(obs_row: np.ndarray) -> np.ndarray:
+    """gym-pybullet-drones kin obs angular velocity: indices 13:16."""
+    return obs_row[13:16].copy()
+
+
 class LeaderFollowerSim:
     """Runs the two-drone dual-quaternion leader-follower experiment."""
 
@@ -182,6 +187,13 @@ class LeaderFollowerSim:
             heading_source=cfg.follower_heading_source,
             heading_smoothing=cfg.follower_heading_smoothing,
         )
+        # Initialize the follower's body-frame trailing direction from the
+        # leader trajectory. At simulator reset the measured horizontal
+        # velocity can be zero for the first control sample, so relying only
+        # on measured velocity would initialize the saddle follower with a
+        # world-X offset instead of the correct tangent-frame offset.
+        if cfg.follower_offset_mode == "body" and cfg.follower_heading_source == "velocity":
+            self.follower_traj.reset(initial_heading=self.leader_traj.yaw(0.0))
 
         self.leader_ctrl = KinematicController(gains["leader"])
         self.follower_ctrl = KinematicController(gains["follower"])
@@ -192,7 +204,12 @@ class LeaderFollowerSim:
         self.initial_xyzs = np.array([init_leader, init_follower])
         self.initial_rpys = np.zeros((2, 3))
         if cfg.follower_offset_mode == "body":
-            self.initial_rpys[1] = init_leader_att.to_rpy()  # spawn facing the same heading
+            # Spawn the follower with the same initial attitude as the leader
+            # actually receives in the simulator. Q_Fd is built from the
+            # measured leader attitude, which is zero-roll/pitch/yaw at reset;
+            # using the leader *desired* yaw here creates an artificial 90-deg
+            # initial attitude error for the saddle trajectory.
+            self.initial_rpys[1] = self.initial_rpys[0].copy()
 
         common_kwargs = dict(
             drone_model=cfg.drone_model,
@@ -270,10 +287,15 @@ class LeaderFollowerSim:
         for step in range(num_steps):
             t = step * self.ctrl_timestep
 
-            leader_pos = _pos_from_obs(_get_drone_obs(obs, 0))
-            leader_att = _quat_xyzw_from_obs(_get_drone_obs(obs, 0))
-            follower_pos = _pos_from_obs(_get_drone_obs(obs, 1))
-            follower_att = _quat_xyzw_from_obs(_get_drone_obs(obs, 1))
+            leader_obs = _get_drone_obs(obs, 0)
+            follower_obs = _get_drone_obs(obs, 1)
+
+            leader_pos = _pos_from_obs(leader_obs)
+            leader_att = _quat_xyzw_from_obs(leader_obs)
+            leader_vel = _vel_from_obs(leader_obs)
+            leader_ang_vel = _ang_vel_from_obs(leader_obs)
+            follower_pos = _pos_from_obs(follower_obs)
+            follower_att = _quat_xyzw_from_obs(follower_obs)
 
             Q_leader = DualQuaternion.from_pose(leader_pos, leader_att)
             Q_follower = DualQuaternion.from_pose(follower_pos, follower_att)
@@ -287,8 +309,25 @@ class LeaderFollowerSim:
             target_pos_L, target_rpy_L = self._target_from_twist(Q_leader, omega_cmd_L, v_cmd_L)
 
             # --- follower: desired trajectory built from *measured* leader --
+            # For body-frame formation offsets on an analytic trajectory, use
+            # the exact geometric tangent heading/rate of that trajectory.
+            # This avoids startup noise from finite-difference simulator
+            # velocities being magnified by the 1.85 m formation offset.
+            reference_heading = None
+            reference_heading_rate = None
+            if cfg.follower_offset_mode == "body":
+                reference_heading = float(self.leader_traj.yaw(t))
+                reference_heading_rate = float(self.leader_traj.angular_velocity(t)[2])
+
             Qd_follower, omega_d_F, v_d_F = self.follower_traj.update(
-                t, leader_pos, leader_att, self.ctrl_timestep
+                t,
+                leader_pos,
+                leader_att,
+                self.ctrl_timestep,
+                leader_velocity=leader_vel,
+                leader_angular_velocity=leader_ang_vel,
+                reference_heading=reference_heading,
+                reference_heading_rate=reference_heading_rate,
             )
             omega_cmd_F, v_cmd_F = self.follower_ctrl.compute(
                 Q_follower, Qd_follower, omega_d_F, v_d_F, self.ctrl_timestep
@@ -298,15 +337,19 @@ class LeaderFollowerSim:
             # --- low-level PID -> RPMs (stands in for the Bebop firmware) ---
             rpm0, _, _ = self.pid[0].computeControlFromState(
                 control_timestep=self.ctrl_timestep,
-                state=_get_drone_obs(obs, 0),
+                state=leader_obs,
                 target_pos=target_pos_L,
                 target_rpy=target_rpy_L,
+                target_vel=v_cmd_L,
+                target_rpy_rates=omega_cmd_L,
             )
             rpm1, _, _ = self.pid[1].computeControlFromState(
                 control_timestep=self.ctrl_timestep,
-                state=_get_drone_obs(obs, 1),
+                state=follower_obs,
                 target_pos=target_pos_F,
                 target_rpy=target_rpy_F,
+                target_vel=v_cmd_F,
+                target_rpy_rates=omega_cmd_F,
             )
             if action_is_dict:
                 action["0"] = rpm0
