@@ -199,14 +199,14 @@ This is the dual-quaternion analogue of `q̇ = ½ q ∘ ω̄` for pure rotation 
 
 ## 5. Pose Error and the Control Objective
 
-Let `Q` be the vehicle's **current** pose and `Q_d` the **desired** pose. The **pose error** is defined as a single dual quaternion:
+Let `Q` be the vehicle's **current** pose and $Q_d$ the **desired** pose. The **pose error** is defined as a single dual quaternion:
 
 $$\delta Q = Q_d^* \circ Q = \delta \bar q + \varepsilon\, \tfrac{1}{2}\left(\overline{\delta p}^{\,b} \circ \delta \bar q\right)$$
 
 where:
-- `δq̄ = q̄_d* ∘ q̄` is the **attitude error** (a quaternion — how far the current orientation is from the desired one),
-- `δp = p − p_d` is the raw **position error**, and
-- `δp̄ᵇ = q̄_d* ∘ δp̄ ∘ q̄_d` is that position error expressed **in the desired body frame** — the natural frame to regulate it in.
+- $\delta \bar{q} = \bar{q}_d^* \circ \bar{q}$ is the **attitude error** (a quaternion — how far the current orientation is from the desired one),
+- $\delta p = p - p_d$ is the raw **position error**, and
+- $\delta \bar{p}^{\,b} = \bar{q}_d^* \circ \delta \bar{p} \circ \bar{q}_d$ is that position error expressed **in the desired body frame** — the natural frame to regulate it in.
 
 The **control goal** is simply: drive `δQ → 1` (the identity dual quaternion), i.e., make `(δq̄, δp) → (0, 0)`, meaning the vehicle's actual pose converges to the desired pose. Both position and attitude errors are captured by this one object.
 
@@ -214,101 +214,348 @@ The **control goal** is simply: drive `δQ → 1` (the identity dual quaternion)
 
 ## 6. The Kinematic Control Law
 
-The controller (from Giribet et al., 2021, and reproduced/analyzed here) computes the **commanded twist** `(ω, v)` sent to the vehicle as a function of the pose error, using six gain matrices — all required to be **negative definite**:
+The controller computes the **commanded twist** $(\bar{\omega}, \bar{v})$ sent to the vehicle as a function of the pose error. It uses six gain matrices:
 
-$$K_{\omega,p},\ K_{v,p},\ K_{\omega,i},\ K_{v,i},\ K_\eta,\ K_\xi \in \mathbb{R}^{3\times3}$$
+$$K_{\omega,p},\; K_{v,p},\; K_{\omega,i},\; K_{v,i},\; K_{\eta},\; K_{\xi} \in \mathbb{R}^{3\times3}$$
 
-The control law is:
+For the stability result, these gain matrices are required to be **negative definite**.
 
-- **Angular velocity command:**
-  $$\bar\omega = \delta\bar q^* \circ \bar\omega_d \circ \delta\bar q + \big(\text{sgn}(\delta q_0)(K_{\omega,p}\,\delta q + \eta_0 K_{\omega,i}\,\eta),\ 0\big)$$
-- **Linear velocity command:**
-  $$\bar v = \bar v_d + \mathcal{R}(\bar q_d)\big(K_{v,p}\,\delta p^b + K_{v,i}\,\xi\big)$$
-- **Attitude integral term** `η` (with a "forgetting factor" so it doesn't wind up unboundedly):
-  $$\dot{\bar\eta} = \tfrac{1}{2}\bar\eta \circ \big(-|\delta q_0| K_{\omega,i}\,\delta q + \text{sgn}(\eta_0) K_\eta\,\eta,\ 0\big)$$
-- **Position integral term** `ξ`:
-  $$\dot\xi = -K_{v,i}\,\delta p^b + K_\xi\,\xi$$
+### Angular velocity command
 
-In words:
-- The **feedforward** terms (`ω_d`, `v_d`) carry the desired trajectory's own velocity.
-- The **proportional** terms (`K_{ω,p}`, `K_{v,p}`) push the vehicle toward the desired pose based on the instantaneous error.
-- The **integral** terms (`η`, `ξ`, weighted by `K_{ω,i}`, `K_{v,i}`, `K_η`, `K_ξ`) accumulate error over time, improving steady-state tracking and rejecting persistent disturbances or model uncertainty — much like the "I" term in a PID controller.
+$$\bar{\omega} = \delta\bar{q}^{\,*} \circ \bar{\omega}_d \circ \delta\bar{q} + \left( \mathrm{sgn}(\delta q_0) \left( K_{\omega,p}\delta q + \eta_0 K_{\omega,i}\eta \right), \, 0 \right)$$
 
-**Theorem (paper's Theorem 1):** if all six gain matrices are negative definite, this control law drives the full error state `(δq̄, δp, ξ, η) → 0` using a Lyapunov argument combined with LaSalle's invariance principle. This is the formal guarantee that the controller works — but it does *not* say **how well** it works (fast/slow, oscillatory/smooth). That's the tuning problem addressed next.
+Here:
+
+- $\bar{\omega}$ is the commanded angular velocity represented as a pure quaternion.
+- $\bar{\omega}_d$ is the desired angular velocity.
+- $\delta\bar{q}$ is the attitude-error quaternion.
+- $\delta q$ is the vector part of $\delta\bar{q}$.
+- $\delta q_0$ is the scalar part of $\delta\bar{q}$.
+- $\eta$ is the vector part of the attitude integral state.
+- $\eta_0$ is the scalar part of the attitude integral quaternion $\bar{\eta}$.
+
+### Linear velocity command
+
+$$\bar{v} = \bar{v}_d + \mathcal{R}(\bar{q}_d) \left( K_{v,p}\delta p^{\,b} + K_{v,i}\xi \right)$$
+
+Here, $\delta p^{\,b}$ is the position error expressed in the desired body frame.
+
+### Attitude integral state
+
+$$\dot{\bar{\eta}} = \frac{1}{2} \bar{\eta} \circ \left( -|\delta q_0| K_{\omega,i}\delta q + \mathrm{sgn}(\eta_0) K_{\eta}\eta, \, 0 \right)$$
+
+The $K_{\eta}\eta$ term acts as a **forgetting/leakage term**, preventing the integral state from growing without bound.
+
+### Position integral state
+
+$$\dot{\xi} = -K_{v,i}\delta p^{\,b} + K_{\xi}\xi$$
+
+The first term accumulates the position error, while $K_{\xi}\xi$ provides the corresponding forgetting mechanism.
+
+### Interpretation
+
+- The **feedforward** terms $\bar{\omega}_d$ and $\bar{v}_d$ provide the velocity required by the desired trajectory.
+- The **proportional** terms $K_{\omega,p}\delta q$ and $K_{v,p}\delta p^{\,b}$ respond to the instantaneous pose error.
+- The **integral** terms involving $\eta$ and $\xi$ accumulate persistent tracking errors.
+- The $K_{\eta}$ and $K_{\xi}$ terms prevent excessive accumulation of the integral states.
+
+The closed-loop error states converge toward the desired equilibrium:
+
+$$\delta\bar{q}\rightarrow\bar{1}, \qquad \delta p\rightarrow0, \qquad \eta\rightarrow0, \qquad \xi\rightarrow0$$
+
+Here, $\bar{1}$ denotes the **identity quaternion**, representing zero attitude error.
 
 ---
 
 ## 7. Why Tuning Is Hard: The Linearized Error Dynamics
 
-Adding the integral terms `η` and `ξ` helps tracking performance, but doubles the number of gain matrices to choose (`K_{ω,p}`, `K_{ω,i}`, `K_η` for attitude alone — position is analogous). Picking six 3×3 matrices by trial and error is impractical, so the paper linearizes the closed-loop error dynamics around the equilibrium `(δq, η) = (0, 0)`:
+Adding the integral states $\eta$ and $\xi$ improves steady-state tracking, but it also introduces additional gain matrices.
 
-$$\begin{bmatrix}\dot{\delta q} \\ \dot\eta\end{bmatrix} = \underbrace{\tfrac{1}{2}\begin{bmatrix} K_{\omega,p} & K_{\omega,i} \\ -K_{\omega,i} & K_\eta \end{bmatrix}}_{M_\omega}\begin{bmatrix}\delta q \\ \eta\end{bmatrix}$$
+For the attitude subsystem, the relevant gains are
 
-(An identical structure `M_v` describes the linearized *position* error dynamics.)
+$$K_{\omega,p}, \qquad K_{\omega,i}, \qquad K_{\eta}$$
 
-The **eigenvalues of `M_ω`** (and `M_v`) determine the local speed, damping, and oscillatory behavior of the tracking error near the target pose — exactly like poles determine the behavior of a linear system in classical control theory. So: **choosing gains = placing the poles of `M_ω`/`M_v` in favorable locations.**
+The closed-loop attitude dynamics are linearized around the equilibrium
 
-The catch: `M_ω` is a **block matrix**, and in general there's no simple relationship between the eigenvalues of a block matrix and the eigenvalues of its individual blocks (`K_{ω,p}`, `K_{ω,i}`, `K_η`). Naively picking each block to be "nice" (e.g., diagonal, negative definite) does **not** guarantee the assembled matrix `M_ω` has eigenvalues where you want them.
+$$(\delta q,\eta)=(0,0)$$
+
+The resulting linearized system is
+
+$$\begin{bmatrix} \dot{\delta q}\\\\ \dot{\eta} \end{bmatrix} = M_{\omega} \begin{bmatrix} \delta q\\\\ \eta \end{bmatrix}$$
+
+where
+
+$$M_{\omega} = \frac{1}{2} \begin{bmatrix} K_{\omega,p} & K_{\omega,i}\\\\ -K_{\omega,i} & K_{\eta} \end{bmatrix}$$
+
+Since each gain matrix is $3\times3$, $M_{\omega}$ is a $6\times6$ matrix.
+
+An analogous matrix $M_v$ describes the linearized position-error dynamics.
+
+For a linear system
+
+$$\dot{x}=Mx$$
+
+the eigenvalues of $M$ determine the local behavior of the system.
+
+If
+
+$$\lambda<0$$
+
+the corresponding mode decays exponentially.
+
+If
+
+$$\lambda=\alpha\pm j\beta, \qquad \alpha<0$$
+
+the corresponding mode decays while oscillating.
+
+Therefore:
+
+- **Real negative eigenvalues** → non-oscillatory exponential convergence.
+- **Complex eigenvalues with negative real parts** → damped oscillatory behavior.
+- **Eigenvalues with positive real parts** → instability.
+
+Consequently, selecting the controller gains can be viewed as a structured **pole-placement problem**.
+
+The difficulty is that $M_{\omega}$ is a block matrix. Its eigenvalues cannot, in general, be determined simply by considering the eigenvalues of the individual matrices
+
+$$K_{\omega,p}, \qquad K_{\omega,i}, \qquad K_{\eta}$$
+
+Therefore, making each gain matrix individually negative definite does not by itself determine the exact eigenvalues of the complete matrix $M_{\omega}$.
 
 ---
 
 ## 8. The Pole-Placement / Gain-Selection Method
 
-The paper's key theoretical trick: `M_ω` turns out to be **self-adjoint with respect to an indefinite inner product**. Define:
+The linearized matrix $M_{\omega}$ has a special spectral structure.
 
-$$H = \begin{bmatrix} I & 0 \\ 0 & -I \end{bmatrix}, \qquad [x, y]_H = x^\mathsf{T} H y$$
+Define
 
-Then `M_ω` satisfies `H M_ω = M_ωᵀ H`, i.e., it is **H-self-adjoint**. Matrices with this property have well-studied spectral bounds (Gershgorin-type theorems), which the paper adapts to this specific control problem. Concretely, letting `a₋, a₊` be the extreme eigenvalues of `½K_{ω,p}` and `d₋, d₊` those of `½K_η`:
+$$H = \begin{bmatrix} I_3 & 0\\\\ 0 & -I_3 \end{bmatrix}$$
 
-- **General bound:** the eigenvalues of `M_ω` lie inside the union/intersection of disks centered at the eigenvalues of `½K_{ω,p}` and `½K_η`, with radii scaled by the *coupling* term `K_{ω,i}` (specifically `‖K_{ω,p}^{-1}K_{ω,i}‖` and `‖K_η^{-1}K_{ω,i}‖`).
-- **Real-eigenvalue guarantee:** if the "gap" between the `K_{ω,p}` and `K_η` spectra is large enough relative to the coupling gain `K_{ω,i}` (formally, `‖½K_{ω,i}‖ < k`, a computable threshold), **all eigenvalues of `M_ω` are guaranteed to be real and negative**, landing in two explicit intervals `I₁ ∪ I₂`. Real negative eigenvalues mean **non-oscillatory, exponentially-decaying tracking error** — the best-behaved response.
-- If that gap condition is *not* met, eigenvalues may become **complex**, meaning the tracking error will show oscillations (underdamped-like behavior) as it converges.
+and the corresponding indefinite inner product
 
-**Practical recipe used in this project (and the paper):**
-1. Pick the proportional gains `K_{ω,p}`, `K_{v,p}` first (e.g. by direct experimentation on the platform).
-2. Choose the integral-related gains `K_{ω,i}`, `K_η`, `K_ξ` (and their position counterparts) while checking the eigenvalue bounds above.
-3. Use the real-eigenvalue condition to deliberately choose gains that keep `M_ω`/`M_v` spectra **real and negative**, avoiding oscillatory transients.
+$$[x,y]_H = x^{\mathsf T}Hy$$
 
-This turns an opaque 6-matrix tuning problem into a **transparent, checkable eigenvalue-placement problem** — the paper's central practical contribution.
+The matrix $M_{\omega}$ satisfies
+
+$$HM_{\omega} = M_{\omega}^{\mathsf T}H$$
+
+Therefore, $M_{\omega}$ is **$H$-self-adjoint**.
+
+Define
+
+$$a_- = \lambda_{\min}\left(\frac{1}{2}K_{\omega,p}\right), \qquad a_+ = \lambda_{\max}\left(\frac{1}{2}K_{\omega,p}\right)$$
+
+and
+
+$$d_- = \lambda_{\min}\left(\frac{1}{2}K_{\eta}\right), \qquad d_+ = \lambda_{\max}\left(\frac{1}{2}K_{\eta}\right)$$
+
+The coupling between the proportional and integral dynamics is determined by $K_{\omega,i}$.
+
+The spectral bounds therefore depend on quantities such as
+
+$$\left\| K_{\omega,p}^{-1}K_{\omega,i} \right\|$$
+
+and
+
+$$\left\| K_{\eta}^{-1}K_{\omega,i} \right\|$$
+
+If the coupling introduced by $K_{\omega,i}$ is sufficiently small compared with the separation between the spectra associated with $K_{\omega,p}$ and $K_{\eta}$, the eigenvalues of $M_{\omega}$ can be guaranteed to remain real and negative:
+
+$$\lambda_i(M_{\omega})\in\mathbb{R}, \qquad \lambda_i(M_{\omega})<0$$
+
+This produces a locally exponentially convergent and non-oscillatory response.
+
+If the coupling becomes too strong, complex eigenvalues can appear:
+
+$$\lambda_{1,2} = \alpha\pm j\beta, \qquad \alpha<0$$
+
+which corresponds to damped oscillatory behavior.
+
+### Practical Gain-Selection Procedure
+
+1. Select the proportional gains:
+
+   $$K_{\omega,p}, \qquad K_{v,p}$$
+
+2. Select the integral-related gains:
+
+   $$K_{\omega,i}, \qquad K_{\eta}, \qquad K_{v,i}, \qquad K_{\xi}$$
+
+3. Construct the linearized attitude matrix:
+
+   
+```math
+M_{\omega} = \frac{1}{2} \begin{bmatrix} K_{\omega,p} & K_{\omega,i}\\ -K_{\omega,i} & K_{\eta} \end{bmatrix}
+```
+
+4. Construct the corresponding position matrix $M_v$.
+
+5. Compute their eigenvalues:
+
+   $$\lambda(M_{\omega}), \qquad \lambda(M_v)$$
+
+6. Select gains that produce eigenvalues with negative real parts. When a smooth non-oscillatory response is desired, select gains satisfying the conditions that keep the eigenvalues real and negative.
 
 ---
 
 ## 9. From Kinematics to Quadrotor Commands
 
-The kinematic controller above outputs a desired **twist** `(ω, v)` — it assumes the vehicle can instantly achieve any commanded velocity. Real quadrotors, however, are underactuated: they only directly control four things — collective thrust and three torques (roll, pitch, yaw), realized through four command channels `(u_φ, u_θ, u_ż, u_ψ̇)`.
+The kinematic controller produces the desired twist
 
-- `u_ż` (vertical velocity) and `u_ψ̇` (yaw rate) map **directly** from the kinematic twist commands `(ω, v)` computed in Section 6.
-- `u_φ`, `u_θ` (roll and pitch angles) are **not** velocities — they are *attitude* commands that indirectly produce horizontal acceleration by tilting the thrust vector. These must be derived from the *desired acceleration*:
+$$(\bar{\omega},\bar{v})$$
 
-$$U_p = \ddot p_{jd} + K_a(\dot p_j - v)$$
+A real quadrotor cannot directly generate an arbitrary three-dimensional velocity. Its motion is produced through thrust and attitude control.
 
-  and then converted into a required attitude via a **thrust-vector-alignment** construction — rotating the body's thrust axis to align with the direction of `U_p`:
+The command variables considered in this project are
 
-$$\bar q'_{j\phi,\theta} = \big(n_j \times U_p,\ \langle n_j, U_p\rangle + \|U_p\|\big), \qquad \bar q_{j\phi,\theta} = \bar q'_{j\phi,\theta} / \|\bar q'_{j\phi,\theta}\|$$
+$$u_{\phi}, \qquad u_{\theta}, \qquad u_{\dot z}, \qquad u_{\dot\psi}$$
 
-  This gives the roll/pitch part of the desired attitude, independent of yaw. Yaw is controlled separately via a desired heading quaternion `q̄_{jψ}`, and the two are composed:
+corresponding to roll, pitch, vertical velocity, and yaw-rate commands.
 
-$$\bar q_{jd} = \bar q_{j\phi,\theta} \circ \bar q_{j\psi}$$
+The horizontal motion requires an additional mapping because a quadrotor generates horizontal acceleration by **tilting its thrust vector**.
 
-This two-layer structure — a kinematic dual-quaternion controller on top, and a physical thrust/attitude mapping underneath — mirrors how real multirotor autopilots are structured, and is what this simulation replicates to produce realistic, physically consistent motion.
+### Desired Acceleration
+
+$$U_p = \ddot{p}_{jd} + K_a\left(\dot{p}_j-v\right)$$
+
+Here:
+
+- $p_{jd}$ is the desired position of vehicle $j$.
+- $\dot{p}_{jd}$ is the desired velocity.
+- $\ddot{p}_{jd}$ is the desired acceleration.
+- $\dot{p}_j$ is the actual velocity.
+- $v$ is the velocity generated by the kinematic controller.
+- $K_a$ is the acceleration-level feedback gain.
+
+### Thrust-Vector Alignment
+
+Let $n_j$ denote the thrust axis of vehicle $j$.
+
+The roll-pitch quaternion is constructed as
+
+$$\bar{q}'_{j\phi,\theta} = \left( n_j\times U_p,\, \left\langle n_j,U_p\right\rangle + \|U_p\| \right)$$
+
+It is then normalized:
+
+$$\bar{q}_{j\phi,\theta} = \frac{\bar{q}'_{j\phi,\theta}}{\left\|\bar{q}'_{j\phi,\theta}\right\|}$$
+
+This quaternion represents the rotation required to align the vehicle's thrust direction with the desired acceleration direction.
+
+### Yaw Composition
+
+The roll-pitch orientation does not uniquely determine yaw. Therefore, yaw is specified independently using the desired yaw quaternion $\bar{q}_{j\psi}$.
+
+The complete desired attitude is
+
+$$\bar{q}_{jd} = \bar{q}_{j\phi,\theta} \circ \bar{q}_{j\psi}$$
+
+The complete control structure is therefore:
+
+```
+Pose error → Kinematic controller → (ω̄, v̄) → Acceleration/attitude mapping → Quadrotor commands
+```
 
 ---
 
 ## 10. Leader-Follower Formation Law
 
-With the single-vehicle controller established, the formation law simply defines **what pose each vehicle should track**:
+The formation controller defines the desired pose that each vehicle should track.
 
-- **Leader:** follows an analytically defined trajectory $p_{Ld}(t)$ (position) with a freely-chosen attitude $q_{Ld}(t)$, since the platform is omnidirectional in attitude. Together these form the leader's desired dual quaternion:
-  $$Q_{Ld} = \bar q_{Ld}(t) + \varepsilon\,\tfrac{1}{2}\, \bar p_{Ld}(t) \circ \bar q_{Ld}(t)$$
-- **Follower:** tracks the leader's *measured* (not planned) position, offset by a fixed or time-varying vector `f(t)` that keeps the two vehicles safely apart:
-  $$p_{Fd}[k] = p_L[k] + f(t)$$
-  The follower's desired attitude can either be set independently or copied from the leader (the latter is what the paper's experiments use: $q̄_{Fd} = q̄_L$).
+Let
 
-Because the follower's desired trajectory is derived by (numerically) differentiating noisy real-time measurements of the leader, the **follower's tracking is inherently noisier** than the leader's — an effect visible in both the paper's and this project's results (see Section 13).
+$$j\in\{L,F\}$$
 
-Each vehicle (leader `L` and follower `F`) then runs its **own independent copy** of the Section 6 controller against its own desired dual quaternion:
+where $L$ denotes the leader and $F$ denotes the follower.
 
-$$\delta Q_j = Q_{jd}^* \circ Q_j, \qquad j \in \{L, F\}$$
+### Leader
+
+The leader follows a predefined position trajectory
+
+$$p_{Ld}(t)$$
+
+and a desired attitude
+
+$$\bar{q}_{Ld}(t)$$
+
+The leader's desired pose is represented by the dual quaternion
+
+$$Q_{Ld} = \bar{q}_{Ld}(t) + \varepsilon\frac{1}{2}\bar{p}_{Ld}(t) \circ \bar{q}_{Ld}(t)$$
+
+where $\varepsilon$ is the dual unit satisfying
+
+$$\varepsilon^2=0$$
+
+Thus, $Q_{Ld}$ simultaneously represents the desired position and orientation of the leader.
+
+### Follower
+
+The follower's desired position is generated from the leader's measured position and a formation offset:
+
+$$p_{Fd}(t) = p_L(t)+f(t)$$
+
+Here:
+
+- $p_L(t)$ is the measured leader position.
+- $f(t)$ is the desired formation offset.
+- $p_{Fd}(t)$ is the resulting desired follower position.
+
+For example, if the follower should remain $2\,\mathrm{m}$ behind the leader:
+
+$$f(t) = \begin{bmatrix} -2\\\\ 0\\\\ 0 \end{bmatrix}$$
+
+The follower's desired attitude can be specified independently or chosen to follow the leader:
+
+$$\bar{q}_{Fd}(t) = \bar{q}_L(t)$$
+
+### Effect of Measurement Noise
+
+Because the follower's desired position depends on the leader's measured position, measurement noise is directly transferred to the follower reference.
+
+If
+
+$$p_L^m(t) = p_L(t)+n(t)$$
+
+then
+
+$$p_{Fd}^m(t) = p_L^m(t)+f(t) = p_L(t)+f(t)+n(t)$$
+
+Therefore, the follower's reference already contains the leader's measurement noise.
+
+If velocity or acceleration is subsequently obtained using numerical differentiation, high-frequency measurement noise can be amplified further. This explains why the follower's trajectory can appear noisier than the leader's trajectory.
+
+### Pose Error for Each Vehicle
+
+Each vehicle runs its own copy of the kinematic controller.
+
+For
+
+$$j\in\{L,F\}$$
+
+the dual-quaternion pose error is
+
+$$\delta Q_j = Q_{jd}^{*} \circ Q_j$$
+
+Therefore,
+
+$$\delta Q_L = Q_{Ld}^{*} \circ Q_L$$
+
+for the leader, and
+
+$$\delta Q_F = Q_{Fd}^{*} \circ Q_F$$
+
+for the follower.
+
+The overall leader-follower structure is therefore:
+
+```
+Leader trajectory → Leader desired pose → Leader controller → Leader motion
+```
+
+```
+Leader measured pose + Formation offset → Follower desired pose → Follower controller → Follower motion
+```
 
 ---
 
