@@ -32,10 +32,7 @@ import collections
 import collections.abc
 import numpy as np
 
-# Py3.10+ moved these ABCs out of `collections` into `collections.abc`.
-# The old `gym` package (dependency of gym_pybullet_drones 0.6.0 / v1.0.0)
-# still references collections.Mapping directly, so restore the old aliases
-# before anything downstream imports `gym`.
+
 for _name in ("Mapping", "MutableMapping", "Sequence", "Set", "Callable"):
     if not hasattr(collections, _name) and hasattr(collections.abc, _name):
         setattr(collections, _name, getattr(collections.abc, _name))
