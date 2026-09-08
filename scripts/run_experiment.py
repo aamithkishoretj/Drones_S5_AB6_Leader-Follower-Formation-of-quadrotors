@@ -18,7 +18,7 @@ from dq_control import (
     LeaderTrajectory, LemniscateParams,
     PotatoChipTrajectory, PotatoChipParams,
 )
-from envs import LeaderFollowerSim, SimConfig
+from simulators import SimConfig, LeaderFollowerSimulation, available_simulators
 from utils import save_run
 
 
@@ -29,15 +29,22 @@ def parse_args():
         help="Which gain set from Section V to run.",
     )
     p.add_argument(
+        "--simulator", choices=available_simulators(), default="pybullet",
+        help="Simulation backend. The formation controller is shared across backends.",
+    )
+    p.add_argument(
         "--trajectory", choices=["lemniscate", "potato_chip"], default="lemniscate",
         help="Shape the leader flies. 'lemniscate' = paper's figure-eight (default). "
              "'potato_chip' = a saddle/Pringle-shaped 3D curve (circle in x,y with a "
              "cos(k*theta) ripple in z).",
     )
     p.add_argument("--duration", type=float, default=30.0, help="Simulation duration, s.")
-    p.add_argument("--pyb_freq", type=int, default=240, help="Physics steps / s.")
-    p.add_argument("--ctrl_freq", type=int, default=48, help="Controller / PID steps / s.")
-    p.add_argument("--gui", action="store_true", help="Show the PyBullet GUI.")
+    p.add_argument(
+        "--physics_freq", "--pyb_freq", dest="pyb_freq", type=int, default=240,
+        help="Physics steps / s. Used by PyBullet; accepted for compatibility with the original CLI.",
+    )
+    p.add_argument("--ctrl_freq", type=int, default=48, help="Controller / low-level control steps / s.")
+    p.add_argument("--gui", action="store_true", help="Show the simulator GUI when supported.")
     p.add_argument("--output", type=str, default=os.path.join(_ROOT, "results"))
     p.add_argument("--x_offset", type=float, default=1.85, help="Follower offset magnitude, m (eq. 16).")
     p.add_argument(
@@ -145,6 +152,7 @@ def main():
 
     gains = get_gains(args.experiment)
     cfg = SimConfig(
+        simulator=args.simulator,
         duration_sec=args.duration,
         pyb_freq=args.pyb_freq,
         ctrl_freq=args.ctrl_freq,
@@ -159,12 +167,13 @@ def main():
     leader_traj = build_leader_trajectory(args)
 
     print(
-        f"[run_experiment] experiment={args.experiment}  trajectory={args.trajectory}  "
-        f"follower_offset_mode={follower_offset_mode}  duration={args.duration}s  gui={args.gui}"
+        f"[run_experiment] simulator={args.simulator}  experiment={args.experiment}  "
+        f"trajectory={args.trajectory}  follower_offset_mode={follower_offset_mode}  "
+        f"duration={args.duration}s  gui={args.gui}"
     )
-    sim = LeaderFollowerSim(gains=gains, cfg=cfg, leader_traj=leader_traj)
+    sim = LeaderFollowerSimulation(gains=gains, cfg=cfg, leader_traj=leader_traj)
     log = sim.run()
-    run_name = f"{args.experiment}_{args.trajectory}"
+    run_name = f"{args.simulator}_{args.experiment}_{args.trajectory}"
     save_run(log, experiment_name=run_name, output_folder=args.output)
 
 

@@ -12,3 +12,10 @@ pytest>=7.2
 
 #   cd ../gym-pybullet-drones
 #   pip install -e .
+
+
+# Multi-simulator notes
+# - PyBullet backend: gym-pybullet-drones is an external sibling repo.
+# - Gazebo backend: Gazebo Sim + ROS 2 Jazzy + ros_gz are system dependencies.
+# - MuJoCo backend: reserved in the registry; install mujoco when implemented.
+# - ArduPilot backend: reserved in the registry; the ArduPilot repo is cloned as a sibling.

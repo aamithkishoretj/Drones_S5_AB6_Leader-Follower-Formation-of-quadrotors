@@ -1,0 +1,28 @@
+# ROS 2 <-> Gazebo Sim bridges used by the Python GazeboBackend.
+# Pose: Gazebo -> ROS.
+# Motor command: ROS -> Gazebo.
+#
+# ros_gz_bridge supports these message mappings in current releases.
+- ros_topic_name: "/model/drone_0/pose"
+  gz_topic_name: "/model/drone_0/pose"
+  ros_type_name: "geometry_msgs/msg/PoseStamped"
+  gz_type_name: "gz.msgs.Pose"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/model/drone_1/pose"
+  gz_topic_name: "/model/drone_1/pose"
+  ros_type_name: "geometry_msgs/msg/PoseStamped"
+  gz_type_name: "gz.msgs.Pose"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/drone_0/gazebo/command/motor_speed"
+  gz_topic_name: "/drone_0/gazebo/command/motor_speed"
+  ros_type_name: "actuator_msgs/msg/Actuators"
+  gz_type_name: "gz.msgs.Actuators"
+  direction: ROS_TO_GZ
+
+- ros_topic_name: "/drone_1/gazebo/command/motor_speed"
+  gz_topic_name: "/drone_1/gazebo/command/motor_speed"
+  ros_type_name: "actuator_msgs/msg/Actuators"
+  gz_type_name: "gz.msgs.Actuators"
+  direction: ROS_TO_GZ

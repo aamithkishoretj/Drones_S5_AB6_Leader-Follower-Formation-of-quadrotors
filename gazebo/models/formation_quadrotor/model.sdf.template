@@ -1,0 +1,177 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="formation_quadrotor">
+    <self_collide>false</self_collide>
+    <allow_auto_disable>false</allow_auto_disable>
+
+    <link name="base_link">
+      <inertial>
+        <mass>0.8</mass>
+        <inertia>
+          <ixx>0.004</ixx>
+          <iyy>0.004</iyy>
+          <izz>0.008</izz>
+          <ixy>0</ixy><ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <geometry>
+          <box><size>0.34 0.34 0.08</size></box>
+        </geometry>
+      </collision>
+      <visual name="body_visual">
+        <geometry>
+          <box><size>0.34 0.34 0.08</size></box>
+        </geometry>
+      </visual>
+    </link>
+
+    <!-- Four motor / rotor links in an X configuration. -->
+    <link name="rotor_0">
+      <pose>0.20 0.20 0.03 0 0 0</pose>
+      <inertial>
+        <mass>0.01</mass>
+        <inertia><ixx>2e-6</ixx><iyy>2e-6</iyy><izz>4e-6</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <visual name="rotor_visual"><geometry><cylinder><radius>0.045</radius><length>0.015</length></cylinder></geometry></visual>
+    </link>
+    <joint name="rotor_0_joint" type="revolute">
+      <pose>0.20 0.20 0.03 0 0 0</pose>
+      <parent>base_link</parent><child>rotor_0</child>
+      <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+    </joint>
+
+    <link name="rotor_1">
+      <pose>-0.20 0.20 0.03 0 0 0</pose>
+      <inertial>
+        <mass>0.01</mass>
+        <inertia><ixx>2e-6</ixx><iyy>2e-6</iyy><izz>4e-6</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <visual name="rotor_visual"><geometry><cylinder><radius>0.045</radius><length>0.015</length></cylinder></geometry></visual>
+    </link>
+    <joint name="rotor_1_joint" type="revolute">
+      <pose>-0.20 0.20 0.03 0 0 0</pose>
+      <parent>base_link</parent><child>rotor_1</child>
+      <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+    </joint>
+
+    <link name="rotor_2">
+      <pose>-0.20 -0.20 0.03 0 0 0</pose>
+      <inertial>
+        <mass>0.01</mass>
+        <inertia><ixx>2e-6</ixx><iyy>2e-6</iyy><izz>4e-6</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <visual name="rotor_visual"><geometry><cylinder><radius>0.045</radius><length>0.015</length></cylinder></geometry></visual>
+    </link>
+    <joint name="rotor_2_joint" type="revolute">
+      <pose>-0.20 -0.20 0.03 0 0 0</pose>
+      <parent>base_link</parent><child>rotor_2</child>
+      <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+    </joint>
+
+    <link name="rotor_3">
+      <pose>0.20 -0.20 0.03 0 0 0</pose>
+      <inertial>
+        <mass>0.01</mass>
+        <inertia><ixx>2e-6</ixx><iyy>2e-6</iyy><izz>4e-6</izz><ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+      </inertial>
+      <visual name="rotor_visual"><geometry><cylinder><radius>0.045</radius><length>0.015</length></cylinder></geometry></visual>
+    </link>
+    <joint name="rotor_3_joint" type="revolute">
+      <pose>0.20 -0.20 0.03 0 0 0</pose>
+      <parent>base_link</parent><child>rotor_3</child>
+      <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+    </joint>
+
+    <!-- Pose feedback to the ROS-Gazebo bridge. -->
+    <plugin filename="gz-sim-pose-publisher-system"
+            name="gz::sim::systems::PosePublisher">
+      <publish_model_pose>true</publish_model_pose>
+      <publish_link_pose>false</publish_link_pose>
+      <update_frequency>100</update_frequency>
+    </plugin>
+
+    <!-- Motor model / thrust plugins. The namespace is substituted for each
+         runtime-created model instance (drone_0 / drone_1). -->
+    <plugin filename="gz-sim-multicopter-motor-model-system"
+            name="gz::sim::systems::MulticopterMotorModel">
+      <robotNamespace>__ROBOT_NAMESPACE__</robotNamespace>
+      <jointName>__ROBOT_NAMESPACE__/rotor_0_joint</jointName>
+      <linkName>__ROBOT_NAMESPACE__/rotor_0</linkName>
+      <turningDirection>ccw</turningDirection>
+      <timeConstantUp>0.0125</timeConstantUp>
+      <timeConstantDown>0.025</timeConstantDown>
+      <maxRotVelocity>1100.0</maxRotVelocity>
+      <motorConstant>8.54858e-06</motorConstant>
+      <momentConstant>0.016</momentConstant>
+      <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+      <actuator_number>0</actuator_number>
+      <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+      <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+      <motorSpeedPubTopic>motor_speed/0</motorSpeedPubTopic>
+      <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+      <motorType>velocity</motorType>
+    </plugin>
+
+    <plugin filename="gz-sim-multicopter-motor-model-system"
+            name="gz::sim::systems::MulticopterMotorModel">
+      <robotNamespace>__ROBOT_NAMESPACE__</robotNamespace>
+      <jointName>__ROBOT_NAMESPACE__/rotor_1_joint</jointName>
+      <linkName>__ROBOT_NAMESPACE__/rotor_1</linkName>
+      <turningDirection>ccw</turningDirection>
+      <timeConstantUp>0.0125</timeConstantUp>
+      <timeConstantDown>0.025</timeConstantDown>
+      <maxRotVelocity>1100.0</maxRotVelocity>
+      <motorConstant>8.54858e-06</motorConstant>
+      <momentConstant>0.016</momentConstant>
+      <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+      <actuator_number>1</actuator_number>
+      <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+      <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+      <motorSpeedPubTopic>motor_speed/1</motorSpeedPubTopic>
+      <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+      <motorType>velocity</motorType>
+    </plugin>
+
+    <plugin filename="gz-sim-multicopter-motor-model-system"
+            name="gz::sim::systems::MulticopterMotorModel">
+      <robotNamespace>__ROBOT_NAMESPACE__</robotNamespace>
+      <jointName>__ROBOT_NAMESPACE__/rotor_2_joint</jointName>
+      <linkName>__ROBOT_NAMESPACE__/rotor_2</linkName>
+      <turningDirection>cw</turningDirection>
+      <timeConstantUp>0.0125</timeConstantUp>
+      <timeConstantDown>0.025</timeConstantDown>
+      <maxRotVelocity>1100.0</maxRotVelocity>
+      <motorConstant>8.54858e-06</motorConstant>
+      <momentConstant>0.016</momentConstant>
+      <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+      <actuator_number>2</actuator_number>
+      <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+      <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+      <motorSpeedPubTopic>motor_speed/2</motorSpeedPubTopic>
+      <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+      <motorType>velocity</motorType>
+    </plugin>
+
+    <plugin filename="gz-sim-multicopter-motor-model-system"
+            name="gz::sim::systems::MulticopterMotorModel">
+      <robotNamespace>__ROBOT_NAMESPACE__</robotNamespace>
+      <jointName>__ROBOT_NAMESPACE__/rotor_3_joint</jointName>
+      <linkName>__ROBOT_NAMESPACE__/rotor_3</linkName>
+      <turningDirection>cw</turningDirection>
+      <timeConstantUp>0.0125</timeConstantUp>
+      <timeConstantDown>0.025</timeConstantDown>
+      <maxRotVelocity>1100.0</maxRotVelocity>
+      <motorConstant>8.54858e-06</motorConstant>
+      <momentConstant>0.016</momentConstant>
+      <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+      <actuator_number>3</actuator_number>
+      <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+      <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+      <motorSpeedPubTopic>motor_speed/3</motorSpeedPubTopic>
+      <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+      <motorType>velocity</motorType>
+    </plugin>
+  </model>
+</sdf>
