@@ -153,7 +153,7 @@ Other key operations:
 >
 > ```text
 > >>> q_z90 ∘ q_z90 = (array([0., 0., 1.]), 0.0)
-> >>> expected q_z180              = (array([0., 0., 1.]), 0.0)   # matches!
+> >>> expected q_z180 =   (array([0., 0., 1.]), 0.0)   # matches!
 > ```
 >
 > This double-check is exactly what you'd hope: composing a 90° rotation about `z` with itself gives the 180° rotation about `z` (vector part `(0,0,1)` is `sin(90°)=1`, scalar part `cos(90°)=0`) — confirming that quaternion multiplication really does compose rotations by *adding* their angles when the axis is shared, just like multiplying two unit complex numbers `e^{iθ₁}e^{iθ₂}=e^{i(θ_1+θ_2)}` adds angles in 2D.
@@ -168,7 +168,7 @@ Note that `q̄` and `-q̄` represent the *same* rotation — this "double cover"
 
 If the body rotates with angular velocity `ω` (expressed in the body frame), the quaternion evolves according to:
 
-$$\dot{\bar q} = \tfrac{1}{2}\, \bar q \circ \bar\omega$$
+$$\dot{\bar q} = \tfrac{1}{2} \bar q \circ \bar\omega$$
 
 This single differential equation replaces the more cumbersome update equations needed for rotation matrices or Euler angles, and it has no singularities.
 
