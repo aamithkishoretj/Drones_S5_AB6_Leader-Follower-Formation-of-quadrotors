@@ -1,0 +1,66 @@
+<mujoco model="dual_quaternion_leader_follower">
+  <compiler angle="radian" autolimits="true"/>
+  <option timestep="0.0041666667" gravity="0 0 -9.81" integrator="implicitfast" iterations="20"/>
+
+  <visual>
+    <global offwidth="1280" offheight="720"/>
+    <quality shadowsize="2048"/>
+  </visual>
+
+  <default>
+    <geom friction="0.7 0.05 0.01" contype="1" conaffinity="1"/>
+  </default>
+
+  <asset>
+    <texture name="grid" type="2d" builtin="checker" width="512" height="512" rgb1="0.14 0.14 0.14" rgb2="0.22 0.22 0.22"/>
+    <material name="gridmat" texture="grid" texrepeat="25 25"/>
+    <material name="leader_mat" rgba="0.04 0.35 0.95 1"/>
+    <material name="follower_mat" rgba="0.95 0.12 0.05 1"/>
+    <material name="arm_mat" rgba="0.06 0.06 0.07 1"/>
+    <material name="rotor_mat" rgba="0.03 0.03 0.03 0.75"/>
+    <material name="nose_mat" rgba="1 0.82 0.05 1"/>
+    <material name="hub_mat" rgba="0.12 0.12 0.14 1"/>
+  </asset>
+
+  <worldbody>
+    <light name="sun" pos="0 -2 8" dir="0 0 -1" directional="true" diffuse="1 1 1" specular="0.25 0.25 0.25"/>
+    <light name="fill" pos="4 -4 5" dir="-1 1 -1" directional="true" diffuse="0.5 0.5 0.5"/>
+    <geom name="floor" type="plane" size="20 20 0.1" material="gridmat"/>
+
+    <!-- Recognizable X-frame quadrotor: leader -->
+    <body name="drone0" pos="1.51 -0.27 1.0">
+      <freejoint name="drone0_free"/>
+      <geom name="drone0_body" type="box" size="0.16 0.11 0.055" mass="0.8" material="leader_mat"/>
+      <geom name="drone0_hub" type="cylinder" pos="0 0 0.065" size="0.10 0.025" mass="0" material="hub_mat" contype="0" conaffinity="0"/>
+      <geom name="drone0_nose" type="box" pos="0.19 0 0.015" size="0.065 0.045 0.022" mass="0" material="nose_mat" contype="0" conaffinity="0"/>
+
+      <geom name="drone0_arm0" type="capsule" fromto="0 0 0.01 0.36 0.36 0.01" size="0.025" mass="0" material="arm_mat" contype="0" conaffinity="0"/>
+      <geom name="drone0_arm1" type="capsule" fromto="0 0 0.01 -0.36 0.36 0.01" size="0.025" mass="0" material="arm_mat" contype="0" conaffinity="0"/>
+      <geom name="drone0_arm2" type="capsule" fromto="0 0 0.01 -0.36 -0.36 0.01" size="0.025" mass="0" material="arm_mat" contype="0" conaffinity="0"/>
+      <geom name="drone0_arm3" type="capsule" fromto="0 0 0.01 0.36 -0.36 0.01" size="0.025" mass="0" material="arm_mat" contype="0" conaffinity="0"/>
+
+      <geom name="drone0_rotor0" type="cylinder" pos="0.36 0.36 0.035" size="0.13 0.008" mass="0" material="rotor_mat" contype="0" conaffinity="0"/>
+      <geom name="drone0_rotor1" type="cylinder" pos="-0.36 0.36 0.035" size="0.13 0.008" mass="0" material="rotor_mat" contype="0" conaffinity="0"/>
+      <geom name="drone0_rotor2" type="cylinder" pos="-0.36 -0.36 0.035" size="0.13 0.008" mass="0" material="rotor_mat" contype="0" conaffinity="0"/>
+      <geom name="drone0_rotor3" type="cylinder" pos="0.36 -0.36 0.035" size="0.13 0.008" mass="0" material="rotor_mat" contype="0" conaffinity="0"/>
+    </body>
+
+    <!-- Recognizable X-frame quadrotor: follower -->
+    <body name="drone1" pos="3.36 -0.27 1.0">
+      <freejoint name="drone1_free"/>
+      <geom name="drone1_body" type="box" size="0.16 0.11 0.055" mass="0.8" material="follower_mat"/>
+      <geom name="drone1_hub" type="cylinder" pos="0 0 0.065" size="0.10 0.025" mass="0" material="hub_mat" contype="0" conaffinity="0"/>
+      <geom name="drone1_nose" type="box" pos="0.19 0 0.015" size="0.065 0.045 0.022" mass="0" material="nose_mat" contype="0" conaffinity="0"/>
+
+      <geom name="drone1_arm0" type="capsule" fromto="0 0 0.01 0.36 0.36 0.01" size="0.025" mass="0" material="arm_mat" contype="0" conaffinity="0"/>
+      <geom name="drone1_arm1" type="capsule" fromto="0 0 0.01 -0.36 0.36 0.01" size="0.025" mass="0" material="arm_mat" contype="0" conaffinity="0"/>
+      <geom name="drone1_arm2" type="capsule" fromto="0 0 0.01 -0.36 -0.36 0.01" size="0.025" mass="0" material="arm_mat" contype="0" conaffinity="0"/>
+      <geom name="drone1_arm3" type="capsule" fromto="0 0 0.01 0.36 -0.36 0.01" size="0.025" mass="0" material="arm_mat" contype="0" conaffinity="0"/>
+
+      <geom name="drone1_rotor0" type="cylinder" pos="0.36 0.36 0.035" size="0.13 0.008" mass="0" material="rotor_mat" contype="0" conaffinity="0"/>
+      <geom name="drone1_rotor1" type="cylinder" pos="-0.36 0.36 0.035" size="0.13 0.008" mass="0" material="rotor_mat" contype="0" conaffinity="0"/>
+      <geom name="drone1_rotor2" type="cylinder" pos="-0.36 -0.36 0.035" size="0.13 0.008" mass="0" material="rotor_mat" contype="0" conaffinity="0"/>
+      <geom name="drone1_rotor3" type="cylinder" pos="0.36 -0.36 0.035" size="0.13 0.008" mass="0" material="rotor_mat" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+</mujoco>

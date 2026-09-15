@@ -51,7 +51,7 @@ from .dual_quaternion import DualQuaternion
 class LemniscateParams:
     r_x: float = 0.85
     r_y: float = 0.65
-    w_d: float = np.pi / 15
+    w_d: float =np.pi / 15
     x0: float = 1.51
     y0: float = -0.27
     z0: float = 1.0

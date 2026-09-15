@@ -4,34 +4,57 @@ from .base import DroneState, SimConfig, SimulationBackend, VehicleCommand
 from .leader_follower import LeaderFollowerSimulation
 from .registry import available_simulators, create_simulator, register_backend
 
-# Real backends
+# Real simulator backends
 from .gym_pybullet import GymPyBulletDronesBackend
 from .gazebo import GazeboBackend
+from .mujoco import MuJoCoBackend
 
-# Explicit placeholders make the architecture visible now; they can be
-# replaced independently without changing dq_control/ or the experiment CLI.
+
 class SimulatorNotImplemented(RuntimeError):
+    """Raised when a requested simulator backend is not implemented."""
     pass
 
 
 def _not_implemented(name: str):
+    """Create a placeholder backend for future simulators."""
+
     def factory(_cfg):
         raise SimulatorNotImplemented(
-            f"The '{name}' backend is reserved in the multi-simulator architecture "
-            "but is not implemented yet. Add its backend under simulators/ without "
-            "changing the formation controller."
+            f"The '{name}' backend is reserved in the multi-simulator "
+            "architecture but is not implemented yet."
         )
+
     return factory
 
 
+# ---------------------------------------------------------------------------
+# Simulator registry
+# ---------------------------------------------------------------------------
+
+# PyBullet
 register_backend("pybullet", GymPyBulletDronesBackend)
 register_backend("gym-pybullet-drones", GymPyBulletDronesBackend)
+
+# Gazebo
 register_backend("gazebo", GazeboBackend)
-register_backend("mujoco", _not_implemented("mujoco"))
+
+# MuJoCo
+register_backend("mujoco", MuJoCoBackend)
+
+# Future backends
 register_backend("ardupilot", _not_implemented("ardupilot"))
 
+
 __all__ = [
-    "DroneState", "SimConfig", "SimulationBackend", "VehicleCommand",
-    "LeaderFollowerSimulation", "available_simulators", "create_simulator",
-    "GymPyBulletDronesBackend", "GazeboBackend", "SimulatorNotImplemented",
+    "DroneState",
+    "SimConfig",
+    "SimulationBackend",
+    "VehicleCommand",
+    "LeaderFollowerSimulation",
+    "available_simulators",
+    "create_simulator",
+    "GymPyBulletDronesBackend",
+    "GazeboBackend",
+    "MuJoCoBackend",
+    "SimulatorNotImplemented",
 ]
