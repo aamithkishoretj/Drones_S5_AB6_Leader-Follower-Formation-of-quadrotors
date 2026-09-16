@@ -83,7 +83,7 @@ This is why the paper — and this project — builds the entire leader-follower
 >
 > Suppose you need to compose three successive rigid-body transforms (e.g., "world → leader body → camera mount → gimbal"). With the classical representation you carry a rotation matrix `R ∈ SO(3)` **and** a translation vector `t ∈ ℝ³` for each transform, and composing two transforms `(R₁,t₁)` then `(R₂,t₂)` requires the (easy to get wrong) rule:
 >
-> $$ (R_2, t_2) \circ (R_1, t_1) = (R_2 R_1,\; R_2 t_1 + t_2) $$
+> $$ (R_2, t_2) \circ (R_1, t_1) = (R_2 R_1, R_2 t_1 + t_2) $$
 >
 > — a matrix-vector rule that is *different* from ordinary matrix multiplication. With unit dual quaternions, composing `Q₂` after `Q₁` is **exactly one dual-quaternion product**, `Q₂ ∘ Q₁`, using the *same* multiplication rule you'd use to compose pure rotations. There is nothing special to remember, and inverting a transform is just the conjugate, `Q⁻¹ = Q*`, instead of `(R,t)⁻¹ = (Rᵀ, -Rᵀt)`. This is exactly what `DualQuaternion.__mul__` and `.inverse()` (or equivalent) implement in `dq_control/dual_quaternion.py`.
 >
@@ -142,7 +142,7 @@ Other key operations:
 >
 > Let `p̄ = (p, p₀)` with vector part `p = (0,0,0.7071)` and scalar part `p₀ = 0.7071` (this happens to be the quaternion for a 90° rotation about `z` — more on that in §3.2). Using the closed-form Hamilton product
 >
-> $$p \circ q = \big(p_0 q + q_0 p + p \times q,\;\; p_0 q_0 - p\cdot q\big)$$
+> $$p \circ q = \big(p_0 q + q_0 p + p \times q, p_0 q_0 - p\cdot q\big)$$
 >
 > compute `p̄ ∘ p̄` (composing the rotation with itself):
 >
@@ -153,7 +153,7 @@ Other key operations:
 >
 > ```text
 > >>> q_z90 ∘ q_z90 = (array([0., 0., 1.]), 0.0)
-> >>> expected q_z180 =   (array([0., 0., 1.]), 0.0)   # matches!
+> >>> expected q_z180 = (array([0., 0., 1.]), 0.0)   # matches!
 > ```
 >
 > This double-check is exactly what you'd hope: composing a 90° rotation about `z` with itself gives the 180° rotation about `z` (vector part `(0,0,1)` is `sin(90°)=1`, scalar part `cos(90°)=0`) — confirming that quaternion multiplication really does compose rotations by *adding* their angles when the axis is shared, just like multiplying two unit complex numbers `e^{iθ₁}e^{iθ₂}=e^{i(θ_1+θ_2)}` adds angles in 2D.
@@ -209,7 +209,7 @@ This is conceptually similar to how `i² = -1` defines complex numbers, except h
 
 Dual numbers add component-wise, and multiply using the rule `ε² = 0`:
 
-$$(a + b\varepsilon)(c + d\varepsilon) = ac + (ad + bc)\,\varepsilon$$
+$$(a + b\varepsilon)(c + d\varepsilon) = ac + (ad + bc)\varepsilon$$
 
 Intuitively, `a` is the "principal" or nominal value, and `b` is a first-order "perturbation" or "derivative-like" term riding along with it. This structure is exactly what's needed to piggy-back *position* information onto *orientation* information.
 
@@ -217,7 +217,7 @@ Intuitively, `a` is the "principal" or nominal value, and `b` is a first-order "
 >
 > A nice way to build intuition for *why* `ε² = 0` is useful is to notice that dual numbers automatically compute derivatives. Take `f(x) = x² + 3x` and evaluate it at `x = 2 + 1·ε` (i.e., set `a = 2`, the point of interest, and `b = 1`):
 >
-> $$f(2+\varepsilon) = (2+\varepsilon)^2 + 3(2+\varepsilon) = \underbrace{4}_{a^2} + \underbrace{4\varepsilon}_{2ab\,\varepsilon} + \underbrace{6}_{3a} + \underbrace{3\varepsilon}_{3b\,\varepsilon} \;(\text{using } \varepsilon^2=0) = 10 + 7\varepsilon$$
+> $$f(2+\varepsilon) = (2+\varepsilon)^2 + 3(2+\varepsilon) = \underbrace{4}_{a^2} + \underbrace{4\varepsilon}_{2ab\varepsilon} + \underbrace{6}_{3a} + \underbrace{3\varepsilon}_{3b\varepsilon} (\text{using } \varepsilon^2=0) = 10 + 7\varepsilon$$
 >
 > Reading off the result: the **principal part is `f(2) = 10`** and the **dual part is `f′(2) = 7`** — and indeed `f′(x) = 2x+3`, so `f′(2) = 7`. Verified numerically:
 >
@@ -231,7 +231,7 @@ Intuitively, `a` is the "principal" or nominal value, and `b` is a first-order "
 
 A **dual quaternion** is obtained by applying the same trick that built complex-like dual numbers from real numbers — but starting from quaternions instead of reals:
 
-$$Q = \bar r + \varepsilon\, \bar s, \qquad \bar r, \bar s \in \mathbb{H}$$
+$$Q = \bar r + \varepsilon \bar s, \qquad \bar r, \bar s \in \mathbb{H}$$
 
 where `ℍ` is the set of quaternions. `Q` is an 8-dimensional object (4 real dimensions from `r̄`, 4 more from `s̄`). We call:
 
@@ -240,13 +240,13 @@ where `ℍ` is the set of quaternions. `Q` is an 8-dimensional object (4 real di
 
 Sum, product, and conjugation extend naturally from quaternions, always remembering `ε² = 0`. The dual quaternion conjugate is:
 
-$$Q^* = \mathcal{P}(Q)^* + \varepsilon\, \mathcal{D}(Q)^*$$
+$$Q^* = \mathcal{P}(Q)^* + \varepsilon \mathcal{D}(Q)^*$$
 
 > **Worked example — multiplying two dual quaternions**
 >
 > Given `Q₁ = r̄₁ + ε s̄₁` and `Q₂ = r̄₂ + ε s̄₂`, apply the dual-number product rule `(a+εb)(c+εd) = ac + ε(ad+bc)` from §3.3, term by term, but using the quaternion product `∘` instead of ordinary multiplication:
 >
-> $$Q_1 \circ Q_2 = \underbrace{\bar r_1 \circ \bar r_2}_{\text{principal part}} \; + \; \varepsilon\underbrace{\left(\bar r_1 \circ \bar s_2 + \bar s_1 \circ \bar r_2\right)}_{\text{dual part}}$$
+> $$Q_1 \circ Q_2 = \underbrace{\bar r_1 \circ \bar r_2}_{\text{principal part}}  +  \varepsilon\underbrace{\left(\bar r_1 \circ \bar s_2 + \bar s_1 \circ \bar r_2\right)}_{\text{dual part}}$$
 >
 > Note that **order matters twice over**: quaternion multiplication is non-commutative (§3.1), *and* the dual-part sum `r̄₁∘s̄₂ + s̄₁∘r̄₂` keeps each factor in its original left/right position. This single formula is what `DualQuaternion.__mul__` implements, and it's also what makes `Q ∘ Q*` collapse to the identity for any unit dual quaternion — checked numerically for the pose built in the next section:
 >
@@ -261,13 +261,13 @@ Just as a **unit quaternion** represents pure rotation, a **unit dual quaternion
 
 - `Q` has unit norm **if and only if** its principal part `𝒫(Q) = q̄` is itself a unit quaternion (the attitude), and its dual part is:
 
-$$\mathcal{D}(Q) = \tfrac{1}{2}\, \bar p \circ \mathcal{P}(Q)$$
+$$\mathcal{D}(Q) = \tfrac{1}{2} \bar p \circ \mathcal{P}(Q)$$
 
   where `p̄ = (p, 0)` is the position vector `p ∈ ℝ³`, embedded as a pure quaternion.
 
 - Given any unit dual quaternion `Q`, you can always **recover** the attitude and position:
 
-$$\bar q = \mathcal{P}(Q), \qquad \bar p = 2\,\mathcal{D}(Q) \circ \mathcal{P}(Q)^*$$
+$$\bar q = \mathcal{P}(Q), \qquad \bar p = 2\mathcal{D}(Q) \circ \mathcal{P}(Q)^*$$
 
 So a single object `Q = q̄ + ε·½(p̄ ∘ q̄)` carries everything needed to describe "where the drone is and how it's oriented" — and dual quaternion multiplication automatically composes both the rotations *and* the translations correctly, in the right order.
 
@@ -275,11 +275,11 @@ So a single object `Q = q̄ + ε·½(p̄ ∘ q̄)` carries everything needed to 
 >
 > Let the drone be at position `p = (1, 2, 3)` m with attitude `q̄ = (0,0,0.7071,0.7071)` (90° about `z`, from §3.2). Build the unit dual quaternion:
 >
-> $$Q = \bar q + \varepsilon\, \tfrac12\bar p \circ \bar q, \qquad \bar p = (p, 0)$$
+> $$Q = \bar q + \varepsilon \tfrac12\bar p \circ \bar q, \qquad \bar p = (p, 0)$$
 >
 > Computing `½ p̄ ∘ q̄` gives the dual part `(1.0607, 0.3536, 1.0607), -1.0607)`. This does **not** look like `p` at all by itself — position is encoded *jointly* with orientation, which is exactly the point of the algebra: you cannot read off the position without also using the attitude. Recovering it with the paper's formula,
 >
-> $$\bar p = 2\,\mathcal{D}(Q)\circ\mathcal{P}(Q)^*$$
+> $$\bar p = 2\mathcal{D}(Q)\circ\mathcal{P}(Q)^*$$
 >
 > gives back **exactly** `(1, 2, 3)` (vector part) with `0` scalar part:
 >
@@ -306,7 +306,7 @@ $$\Omega(\bar\omega, \bar v), \qquad \mathcal{P}(\Omega) = \bar\omega,\quad \mat
 
 and the pose evolves in time according to a beautifully compact single equation:
 
-$$\dot Q = \tfrac{1}{2}\, Q \circ \Omega(\bar\omega, \bar v)$$
+$$\dot Q = \tfrac{1}{2} Q \circ \Omega(\bar\omega, \bar v)$$
 
 This is the dual-quaternion analogue of `q̇ = ½ q ∘ ω̄` for pure rotation — it simultaneously propagates both position and attitude, using commanded body-frame angular velocity `ω` and inertial-frame linear velocity `v`. This is the equation the simulation integrates forward in time to move each drone.
 
@@ -314,7 +314,7 @@ This is the dual-quaternion analogue of `q̇ = ½ q ∘ ω̄` for pure rotation 
 >
 > Suppose the drone starts at the identity pose (`p=(0,0,0)`, no rotation) and is commanded a constant angular velocity `ω = (0,0,1)` rad/s about `z` and a constant linear velocity `v = (1,0,0)` m/s in the inertial frame. Over a small step `dt = 0.05` s, the (first-order / Euler) update
 >
-> $$Q_{k+1} \approx Q_k + dt\cdot\dot Q_k = Q_k + dt \cdot \tfrac12\, Q_k \circ \Omega(\bar\omega,\bar v)$$
+> $$Q_{k+1} \approx Q_k + dt\cdot\dot Q_k = Q_k + dt \cdot \tfrac12 Q_k \circ \Omega(\bar\omega,\bar v)$$
 >
 > moves the drone roughly `0.05` m along `x` (from `v`) while its heading rotates roughly `0.05` rad (≈ 2.9°) about `z` (from `ω`) — after which `integrate_pose()` **re-normalizes** the result back onto the unit-dual-quaternion manifold (since a first-order Euler step of a nonlinear ODE drifts off it slightly). Chaining this update at the controller's rate (`--ctrl_freq`, default 48 Hz) is exactly how each simulated drone's pose advances every control cycle in `envs/leader_follower_sim.py`.
 
@@ -324,12 +324,12 @@ This is the dual-quaternion analogue of `q̇ = ½ q ∘ ω̄` for pure rotation 
 
 Let `Q` be the vehicle's **current** pose and $Q_d$ the **desired** pose. The **pose error** is defined as a single dual quaternion:
 
-$$\delta Q = Q_d^* \circ Q = \delta \bar q + \varepsilon\, \tfrac{1}{2}\left(\overline{\delta p}^{\,b} \circ \delta \bar q\right)$$
+$$\delta Q = Q_d^* \circ Q = \delta \bar q + \varepsilon \tfrac{1}{2}\left(\overline{\delta p}^{b} \circ \delta \bar q\right)$$
 
 where:
 - $\delta \bar{q} = \bar{q}_d^* \circ \bar{q}$ is the **attitude error** (a quaternion — how far the current orientation is from the desired one),
 - $\delta p = p - p_d$ is the raw **position error**, and
-- $\delta \bar{p}^{\,b} = \bar{q}_d^* \circ \delta \bar{p} \circ \bar{q}_d$ is that position error expressed **in the desired body frame** — the natural frame to regulate it in.
+- $\delta \bar{p}^{b} = \bar{q}_d^* \circ \delta \bar{p} \circ \bar{q}_d$ is that position error expressed **in the desired body frame** — the natural frame to regulate it in.
 
 The **control goal** is simply: drive `δQ → 1` (the identity dual quaternion), i.e., make `(δq̄, δp) → (0, 0)`, meaning the vehicle's actual pose converges to the desired pose. Both position and attitude errors are captured by this one object.
 
@@ -355,13 +355,13 @@ The **control goal** is simply: drive `δQ → 1` (the identity dual quaternion)
 
 The controller computes the **commanded twist** $(\bar{\omega}, \bar{v})$ sent to the vehicle as a function of the pose error. It uses six gain matrices:
 
-$$K_{\omega,p},\; K_{v,p},\; K_{\omega,i},\; K_{v,i},\; K_{\eta},\; K_{\xi} \in \mathbb{R}^{3\times3}$$
+$$K_{\omega,p}, K_{v,p}, K_{\omega,i}, K_{v,i}, K_{\eta}, K_{\xi} \in \mathbb{R}^{3\times3}$$
 
 For the stability result, these gain matrices are required to be **negative definite**.
 
 ### Angular velocity command
 
-$$\bar{\omega} = \delta\bar{q}^{\,*} \circ \bar{\omega}_d \circ \delta\bar{q} + \left( \mathrm{sgn}(\delta q_0) \left( K_{\omega,p}\delta q + \eta_0 K_{\omega,i}\eta \right), \, 0 \right)$$
+$$\bar{\omega} = \delta\bar{q}^{*} \circ \bar{\omega}_d \circ \delta\bar{q} + \left( \mathrm{sgn}(\delta q_0) \left( K_{\omega,p}\delta q + \eta_0 K_{\omega,i}\eta \right),  0 \right)$$
 
 Here:
 
@@ -375,26 +375,26 @@ Here:
 
 ### Linear velocity command
 
-$$\bar{v} = \bar{v}_d + \mathcal{R}(\bar{q}_d) \left( K_{v,p}\delta p^{\,b} + K_{v,i}\xi \right)$$
+$$\bar{v} = \bar{v}_d + \mathcal{R}(\bar{q}_d) \left( K_{v,p}\delta p^{b} + K_{v,i}\xi \right)$$
 
-Here, $\delta p^{\,b}$ is the position error expressed in the desired body frame.
+Here, $\delta p^{b}$ is the position error expressed in the desired body frame.
 
 ### Attitude integral state
 
-$$\dot{\bar{\eta}} = \frac{1}{2} \bar{\eta} \circ \left( -|\delta q_0| K_{\omega,i}\delta q + \mathrm{sgn}(\eta_0) K_{\eta}\eta, \, 0 \right)$$
+$$\dot{\bar{\eta}} = \frac{1}{2} \bar{\eta} \circ \left( -|\delta q_0| K_{\omega,i}\delta q + \mathrm{sgn}(\eta_0) K_{\eta}\eta,  0 \right)$$
 
 The $K_{\eta}\eta$ term acts as a **forgetting/leakage term**, preventing the integral state from growing without bound.
 
 ### Position integral state
 
-$$\dot{\xi} = -K_{v,i}\delta p^{\,b} + K_{\xi}\xi$$
+$$\dot{\xi} = -K_{v,i}\delta p^{b} + K_{\xi}\xi$$
 
 The first term accumulates the position error, while $K_{\xi}\xi$ provides the corresponding forgetting mechanism.
 
 ### Interpretation
 
 - The **feedforward** terms $\bar{\omega}_d$ and $\bar{v}_d$ provide the velocity required by the desired trajectory.
-- The **proportional** terms $K_{\omega,p}\delta q$ and $K_{v,p}\delta p^{\,b}$ respond to the instantaneous pose error.
+- The **proportional** terms $K_{\omega,p}\delta q$ and $K_{v,p}\delta p^{b}$ respond to the instantaneous pose error.
 - The **integral** terms involving $\eta$ and $\xi$ accumulate persistent tracking errors.
 - The $K_{\eta}$ and $K_{\xi}$ terms prevent excessive accumulation of the integral states.
 
@@ -410,11 +410,11 @@ Here, $\bar{1}$ denotes the **identity quaternion**, representing zero attitude 
 >
 > **Angular velocity command** (only the proportional term survives since `η=0`):
 >
-> $$\bar\omega = \mathrm{sgn}(\delta q_0)\, K_{\omega,p}\,\delta q = (+1)\cdot(-2)\cdot(0,0,0.7071) = (0,0,-1.4142)$$
+> $$\bar\omega = \mathrm{sgn}(\delta q_0) K_{\omega,p}\delta q = (+1)\cdot(-2)\cdot(0,0,0.7071) = (0,0,-1.4142)$$
 >
 > **Linear velocity command** (only the proportional term survives since `ξ=0`, and here `q̄_d`= identity so `𝓡(q̄_d)` is the identity rotation):
 >
-> $$\bar v = K_{v,p}\,\delta p^{\,b} = (-1.5)\cdot(0,0,1) = (0,0,-1.5)$$
+> $$\bar v = K_{v,p}\delta p^{b} = (-1.5)\cdot(0,0,1) = (0,0,-1.5)$$
 >
 > ```text
 > omega_cmd (feedforward=0): [ 0.      0.     -1.4142]
@@ -589,7 +589,7 @@ M_{\omega} = \frac{1}{2} \begin{bmatrix} K_{\omega,p} & K_{\omega,i}\\ -K_{\omeg
 > 3–5. **Build `M_ω` and sweep its eigenvalues** as `c` varies — exactly the sweep plotted in §7's figure.
 > 6. **Pick a gain**: the threshold derived above, `|c| ≤ 0.75`, i.e. `|K_{ω,i}| ≤ 1.5`, is the *boundary* of the non-oscillatory region. Choosing, say, `K_{ω,i} = -1.0` (`c = 0.5`, comfortably inside the boundary) guarantees real, negative eigenvalues and therefore smooth convergence with no overshoot — this is the spirit of how `dq_control/gains.py`'s `gains_real_eig()` chooses its integral gains relative to its proportional and forgetting gains, just carried out on the full $3\times3$ (so $6\times6$) blocks using matrix norms like $\lVert K_{\omega,p}^{-1}K_{\omega,i}\rVert$ instead of the scalar ratio used here for intuition.
 >
-> The general lesson generalizes directly to the $3\times3$/$6\times6$ case: **more integral coupling buys faster disturbance rejection but risks oscillation**, and the paper's contribution is turning that qualitative trade-off into a concrete, checkable inequality instead of leaving it to trial and error.
+> The general lesson generalizes directly to the 3X3 / 6X6 case: **more integral coupling buys faster disturbance rejection but risks oscillation**, and the paper's contribution is turning that qualitative trade-off into a concrete, checkable inequality instead of leaving it to trial and error.
 
 ---
 
@@ -628,7 +628,7 @@ Let $n_j$ denote the thrust axis of vehicle $j$.
 
 The roll-pitch quaternion is constructed as
 
-$$\bar{q}'_{j\phi,\theta} = \left( n_j\times U_p,\, \left\langle n_j,U_p\right\rangle + \|U_p\| \right)$$
+$$\bar{q}'_{j\phi,\theta} = \left( n_j\times U_p, \left\langle n_j,U_p\right\rangle + \|U_p\| \right)$$
 
 It is then normalized:
 
@@ -658,7 +658,7 @@ Visually, as a block diagram matching the code layering in `envs/leader_follower
 >
 > Suppose the body thrust axis is currently straight up, `n_j = (0,0,1)`, and the desired acceleration (already including gravity compensation, from `U_p = p̈_{jd} + K_a(\dot p_j - v)`) works out to `U_p = (1, 0, 9.8)` m/s² — i.e., mostly hovering thrust, plus a little push in `+x`. Then:
 >
-> $$\bar q'_{j\phi,\theta} = \big(n_j\times U_p,\;\; \langle n_j,U_p\rangle + \lVert U_p\rVert\big) = \big((0,\,1,\,0),\;\; 9.8+9.8509\big) = \big((0,1,0),\;19.6509\big)$$
+> $$\bar q'_{j\phi,\theta} = \big(n_j\times U_p, \langle n_j,U_p\rangle + \lVert U_p\rVert\big) = \big((0,1,0), 9.8+9.8509\big) = \big((0,1,0),19.6509\big)$$
 >
 > Normalizing (dividing by `‖q'‖ ≈ 19.6763`) gives `q̄_{jφ,θ} ≈ (0, 0.0508, 0, 0.9987)` — a **small** rotation (tiny vector part), as expected for a small tilt away from vertical. Checking that this quaternion really does rotate `n_j` onto the (normalized) desired direction:
 >
@@ -713,7 +713,7 @@ Here:
 - $f(t)$ is the desired formation offset.
 - $p_{Fd}(t)$ is the resulting desired follower position.
 
-For example, if the follower should remain $2\,\mathrm{m}$ behind the leader:
+For example, if the follower should remain $2\mathrm{m}$ behind the leader:
 
 $$f(t) = \begin{bmatrix} -2\\\\ 0\\\\ 0 \end{bmatrix}$$
 
@@ -755,11 +755,11 @@ If velocity or acceleration is subsequently obtained using numerical differentia
 >
 > Continuing the numbers above, suppose the leader's position sensor has measurement noise `n = (0.05, -0.02, 0.01)` m, so `p_L^m = p_L + n = (3.05, 3.98, 0.01)`. Then the follower's noisy desired position is
 >
-> $$p_{Fd}^m = p_L^m + f = (3.05,3.98,0.01) + (-2,0,0) = (1.05,\,3.98,\,0.01) = p_{Fd} + n$$
+> $$p_{Fd}^m = p_L^m + f = (3.05,3.98,0.01) + (-2,0,0) = (1.05,3.98,0.01) = p_{Fd} + n$$
 >
 > — the *exact same noise vector* `n` appears in the follower's reference, unfiltered, confirming the algebra above. Now suppose the follower's velocity feedforward is obtained by naive finite differencing at the controller's default 48 Hz rate (`dt ≈ 0.0208` s), and each axis of `n` has standard deviation `σ = 0.05` m. Since differencing two independent noisy samples roughly doubles the variance, the resulting **velocity** noise has standard deviation
 >
-> $$\sigma_v \approx \frac{\sqrt{2}\,\sigma}{dt} = \frac{\sqrt2 \times 0.05}{0.0208} \approx 3.4\ \text{m/s}$$
+> $$\sigma_v \approx \frac{\sqrt{2}\sigma}{dt} = \frac{\sqrt2 \times 0.05}{0.0208} \approx 3.4\ \text{m/s}$$
 >
 > — a **large** amount of noise for a drone that might only be flying at 1-2 m/s! This is precisely why `FollowerTrajectory` in `dq_control/trajectories.py` exposes `vel_smoothing` and `heading_smoothing` options (§12.1): low-pass filtering the measured leader state *before* differentiating it is what keeps this amplification from injecting jittery, high-frequency commands into the follower's controller.
 
@@ -1089,7 +1089,7 @@ Running the equivalent (fuller) script against this repository's actual `dq_cont
 | $Q$ | A dual quaternion, $Q=\bar r + \varepsilon\bar s$ | §3.4 |
 | $\mathcal P(Q), \mathcal D(Q)$ | Principal part / dual part of a dual quaternion | §3.4 |
 | $\Omega(\bar\omega,\bar v)$ | The twist dual quaternion packaging angular velocity $\bar\omega$ and linear velocity $\bar v$ | §4 |
-| $\delta Q, \delta\bar q, \delta p, \delta p^{\,b}$ | Pose error, attitude error, raw position error, position error expressed in the desired body frame | §5 |
+| $\delta Q, \delta\bar q, \delta p, \delta p^{b}$ | Pose error, attitude error, raw position error, position error expressed in the desired body frame | §5 |
 | $K_{\omega,p}, K_{v,p}$ | Proportional gain matrices (attitude, position) | §6 |
 | $K_{\omega,i}, K_{v,i}$ | Integral-coupling gain matrices (attitude, position) | §6 |
 | $K_\eta, K_\xi$ | Integral-state "forgetting"/leakage gain matrices | §6 |
