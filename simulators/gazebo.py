@@ -60,6 +60,10 @@ class _GazeboRosNode:
             ) from exc
 
         self.rclpy = rclpy
+
+        if not rclpy.ok():
+            rclpy.init(args=None)
+
         self.node = Node("leader_follower_multi_sim")
         self.model_names = model_names
         self.poses: dict[str, np.ndarray] = {}
