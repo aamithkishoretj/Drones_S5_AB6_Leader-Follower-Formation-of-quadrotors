@@ -64,3 +64,51 @@ def test_gazebo_sdf_template_and_bridge_yaml_are_parseable():
 
 def test_default_control_timestep():
     assert np.isclose(SimConfig().control_timestep(), 1 / 48)
+
+
+def test_gazebo_physics_and_motor_geometry():
+    world = ET.parse(Path(_ROOT) / "gazebo/worlds/leader_follower.sdf.template")
+    assert world.find(".//plugin[@name='gz::sim::systems::Physics']") is not None
+    model = ET.parse(Path(_ROOT) / "gazebo/models/formation_quadrotor/model.sdf.template")
+    joints = {j.attrib["name"] for j in model.findall(".//joint")}
+    links = {l.attrib["name"] for l in model.findall(".//link")}
+    motors = model.findall(".//plugin[@name='gz::sim::systems::MulticopterMotorModel']")
+    assert [m.findtext("turningDirection") for m in motors] == ["ccw", "cw", "ccw", "cw"]
+    for motor in motors:
+        assert motor.findtext("jointName") in joints
+        assert motor.findtext("linkName") in links
+    mass = sum(float(e.text) for e in model.findall(".//inertial/mass"))
+    assert np.isclose(mass, GazeboQuadrotorController().cfg.mass_kg)
+
+
+def test_gazebo_mixer_torque_directions():
+    from dq_control import Quaternion
+    from simulators.base import DroneState, VehicleCommand
+    controller = GazeboQuadrotorController()
+    state = DroneState(np.zeros(3), Quaternion.identity())
+    # y thrust produces roll, -x thrust produces pitch; yaw reacts against spin.
+    mixer = np.array([[.2, .2, -.2, -.2], [-.2, .2, .2, -.2], [-.016, .016, -.016, .016]])
+    commands = [VehicleCommand(np.zeros(3), np.zeros(3), np.array([0., -1., 0.]), np.zeros(3)),
+                VehicleCommand(np.zeros(3), np.zeros(3), np.array([1., 0., 0.]), np.zeros(3)),
+                VehicleCommand(np.zeros(3), np.array([0., 0., .1]), np.zeros(3), np.zeros(3))]
+    for axis, command in enumerate(commands):
+        rpm = controller.compute(state, command)
+        torques = mixer @ (controller.cfg.motor_constant*(rpm*2*np.pi/60)**2)
+        assert torques[axis] > 0
+        assert np.allclose(np.delete(torques, axis), 0, atol=1e-10)
+
+
+def test_repeated_gazebo_pose_preserves_velocity():
+    from types import SimpleNamespace
+    from simulators.gazebo import GazeboBackend
+    backend = GazeboBackend(SimConfig())
+    backend.node = SimpleNamespace(poses={n: np.array([0., 0., 1., 0., 0., 0., 1.]) for n in backend.model_names},
+                                   pose_stamp={n: 1. for n in backend.model_names})
+    backend.states = backend._read_states()
+    for n in backend.model_names:
+        backend.node.poses[n][0] = .1
+        backend.node.pose_stamp[n] = 1.1
+    backend.states = backend._read_states()
+    assert np.allclose(backend.states[0].velocity, [1, 0, 0])
+    repeated = backend._read_states()
+    assert np.allclose(repeated[0].velocity, [1, 0, 0])

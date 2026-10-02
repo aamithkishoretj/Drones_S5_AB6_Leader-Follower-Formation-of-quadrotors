@@ -10,6 +10,7 @@ import numpy as np
 
 from .base import DroneState, SimConfig, SimulationBackend, VehicleCommand
 from .dependencies import sibling_repo
+from .trails import FlightTrails, COLORS
 
 
 for _name in ("Mapping", "MutableMapping", "Sequence", "Set", "Callable"):
@@ -93,6 +94,9 @@ class GymPyBulletDronesBackend(SimulationBackend):
     def __init__(self, cfg: SimConfig):
         _load_gpd()
         self.cfg = cfg
+        self.trails = FlightTrails()
+        self._trail_ids = [[], []]
+        self._trail_count = [0, 0]
         self.env = None
         self.pid = None
         self.obs = None
@@ -204,3 +208,24 @@ class GymPyBulletDronesBackend(SimulationBackend):
         if self.env is not None:
             self.env.close()
             self.env = None
+        self.trails = FlightTrails()
+        self._trail_ids = [[], []]
+        self._trail_count = [0, 0]
+
+    def draw_trails(self, positions):
+        if not self.cfg.gui or not self.cfg.trails or self.env is None:
+            return
+        import pybullet as p
+        for i in self.trails.update(positions):
+            points = self.trails.points[i]
+            if len(points) < 2:
+                continue
+            slot = self._trail_count[i] % 799
+            replace = self._trail_ids[i][slot] if slot < len(self._trail_ids[i]) else -1
+            item = p.addUserDebugLine(points[-2], points[-1], COLORS[i][:3], lineWidth=3,
+                                     lifeTime=0, replaceItemUniqueId=replace, physicsClientId=self.env.CLIENT)
+            if slot < len(self._trail_ids[i]):
+                self._trail_ids[i][slot] = item
+            else:
+                self._trail_ids[i].append(item)
+            self._trail_count[i] += 1

@@ -69,13 +69,21 @@ class SimConfig:
     drone_model: object = None
 
     x_offset: float = 1.85
-    follower_offset_mode: str = "world"
+    follower_offset_mode: str = "path"
+    follow_distance: float = 0.8
+    trails: bool = True
     follower_heading_source: str = "velocity"
     follower_heading_smoothing: float = 0.15
     follower_vel_smoothing: float = 1.0
 
     output_folder: str = "results"
     simulator: str = "pybullet"
+    gazebo_render_engine: str = "ogre2"
+    position_noise_std: float = 0.0
+    kalman: bool = False
+    kalman_measurement_std: float = 0.03
+    kalman_acceleration_std: float = 0.5
+    seed: int = 0
 
     def control_timestep(self) -> float:
         if self.ctrl_freq <= 0:
@@ -87,6 +95,10 @@ class SimulationBackend(ABC):
     """Minimal interface implemented by every simulator backend."""
 
     name: str
+
+    def draw_trails(self, positions) -> None:
+        """Optional visualization of actual vehicle motion."""
+        pass
 
     @abstractmethod
     def reset(self, initial_xyzs: np.ndarray, initial_rpys: np.ndarray) -> None:

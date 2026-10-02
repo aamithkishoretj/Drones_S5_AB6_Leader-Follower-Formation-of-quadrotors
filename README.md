@@ -4,6 +4,20 @@
 
 # AB6: Introduction to Drones — Leader-Follower Formation of Two Quadrotors
 
+**Course-concept extensions:** See [the runnable guide](docs/course_concepts.md)
+for B-spline and LERP/SLERP references, optional position Kalman filtering,
+CVXPY path smoothing, hover stability/prediction, and Taylor/RK45 examples.
+The original dual-quaternion controller and paper gain sets are retained.
+Use `--simulator kinematic` for an ideal control-law demonstration without a
+physics engine; the existing physics backends remain available.
+
+**Follow the leader's actual route (new default):** the follower targets a point
+0.8 m behind along the leader's recorded track, instead of a translated copy
+of the trajectory. GUI runs draw red leader and blue follower trails.
+Use `--follow_distance 0.8` to set the along-path gap, `--no-trails` to hide
+lines, or `--follower_offset_mode world` for the original paper formation.
+See [path-following details](docs/path_following.md).
+
 A simulation of **dual quaternion-based control for a leader-follower formation of two quadrotors**, built to reproduce and explore the ideas from:
 
 > H. N. Marciano, D. K. D. Villa, M. Sarcinelli-Filho, J. I. Giribet, *"Dual Quaternion-Based Control for a Leader-Follower Formation of Two Quadrotors,"* 2024 International Conference on Unmanned Aircraft Systems (ICUAS), Chania, Crete, Greece, June 4–7, 2024.

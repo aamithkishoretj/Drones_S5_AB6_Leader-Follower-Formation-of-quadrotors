@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 import argparse
+import json
 import os
 import sys
 import numpy as np
@@ -20,6 +21,7 @@ from dq_control import (
 )
 from simulators import SimConfig, LeaderFollowerSimulation, available_simulators
 from utils import save_run
+from dq_control import Quaternion
 
 
 def parse_args():
@@ -33,7 +35,7 @@ def parse_args():
         help="Simulation backend. The formation controller is shared across backends.",
     )
     p.add_argument(
-        "--trajectory", choices=["lemniscate", "potato_chip"], default="lemniscate",
+        "--trajectory", choices=["lemniscate", "potato_chip", "bspline", "interpolated"], default="lemniscate",
         help="Shape the leader flies. 'lemniscate' = paper's figure-eight (default). "
              "'potato_chip' = a saddle/Pringle-shaped 3D curve (circle in x,y with a "
              "cos(k*theta) ripple in z).",
@@ -45,14 +47,26 @@ def parse_args():
     )
     p.add_argument("--ctrl_freq", type=int, default=48, help="Controller / low-level control steps / s.")
     p.add_argument("--gui", action="store_true", help="Show the simulator GUI when supported.")
+    p.add_argument("--gazebo_render_engine", choices=["ogre2", "ogre"], default="ogre2",
+                   help="Gazebo GUI renderer; try ogre for WSL graphics issues")
     p.add_argument("--output", type=str, default=os.path.join(_ROOT, "results"))
+    p.add_argument("--trajectory_file", help="JSON control points/knots or interpolation endpoints; see configs/course_*.json")
+    p.add_argument("--optimize_path", action="store_true", help="Smooth B-spline control points with CVXPY")
+    p.add_argument("--kalman", action="store_true", help="Estimate position/velocity from position measurements")
+    p.add_argument("--position_noise_std", type=float, default=0.0, help="Injected position noise standard deviation in metres")
+    p.add_argument("--kalman_measurement_std", type=float, default=0.03)
+    p.add_argument("--kalman_acceleration_std", type=float, default=0.5)
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--follow_distance", type=float, default=0.8, help="Distance behind the leader along its recorded path, metres")
+    p.add_argument("--no-trails", action="store_true", help="Disable actual-flight path lines")
     p.add_argument("--x_offset", type=float, default=1.85, help="Follower offset magnitude, m (eq. 16).")
     p.add_argument(
-        "--follower_offset_mode", choices=["world", "body", "auto"], default="auto",
-        help="'world' = fixed [x_offset,0,0] in the world frame (paper eq. 16 exactly, "
+        "--follower_offset_mode", choices=["path", "world", "body", "auto"], default="path",
+        help="'path' (default) replays the leader's recorded track at --follow_distance. "
+             "'world' = fixed [x_offset,0,0] in the world frame (paper eq. 16 exactly, "
              "good for the lemniscate). 'body' = offset rotated into the leader's current "
              "heading so the follower always trails directly behind it (needed for curved "
-             "paths like potato_chip). 'auto' (default) picks 'world' for --trajectory "
+             "paths like potato_chip). 'auto' picks 'world' for --trajectory "
              "lemniscate and 'body' for --trajectory potato_chip.",
     )
     p.add_argument(
@@ -100,6 +114,28 @@ def parse_args():
 
 
 def build_leader_trajectory(args):
+    if args.optimize_path and args.trajectory != "bspline":
+        raise ValueError("--optimize_path requires --trajectory bspline")
+    if args.trajectory_file and args.trajectory not in ("bspline", "interpolated"):
+        raise ValueError("--trajectory_file requires bspline or interpolated")
+    if args.trajectory in ("bspline", "interpolated"):
+        from dq_control.course_trajectories import BSplineTrajectory, InterpolatedPoseTrajectory
+        path = args.trajectory_file or os.path.join(_ROOT, "configs", f"course_{args.trajectory}.json")
+        with open(path, encoding="utf-8") as stream:
+            spec = json.load(stream)
+        if args.trajectory == "bspline":
+            points = np.asarray(spec["control_points"], float)
+            if args.optimize_path:
+                from dq_control.optimization import smooth_control_points
+                points = smooth_control_points(points, spec.get("smoothing_weight", 1.), spec.get("bounds"))
+            traj = BSplineTrajectory(points, args.duration, spec.get("altitude", 1.), spec.get("knots"))
+        else:
+            traj = InterpolatedPoseTrajectory(spec["start"], spec["end"],
+                Quaternion.from_rpy(spec.get("start_rpy", [0, 0, 0])),
+                Quaternion.from_rpy(spec.get("end_rpy", [0, 0, 0])), args.duration)
+        if any(v is not None for v in (args.start_x, args.start_y, args.start_z)):
+            raise ValueError("For course trajectories, set starting coordinates in --trajectory_file")
+        return traj
     if args.trajectory == "lemniscate":
         params = LemniscateParams(
             r_x=args.r_x, r_y=args.r_y, w_d=args.w_d,
@@ -145,6 +181,8 @@ def build_leader_trajectory(args):
 
 def main():
     args = parse_args()
+    if not np.isfinite(args.duration) or args.duration <= 0:
+        raise ValueError("--duration must be finite and positive")
 
     follower_offset_mode = args.follower_offset_mode
     if follower_offset_mode == "auto":
@@ -153,6 +191,7 @@ def main():
     gains = get_gains(args.experiment)
     cfg = SimConfig(
         simulator=args.simulator,
+        gazebo_render_engine=args.gazebo_render_engine,
         duration_sec=args.duration,
         pyb_freq=args.pyb_freq,
         ctrl_freq=args.ctrl_freq,
@@ -163,6 +202,13 @@ def main():
         follower_heading_source=args.follower_heading_source,
         follower_heading_smoothing=args.follower_heading_smoothing,
         follower_vel_smoothing=args.follower_vel_smoothing,
+        kalman=args.kalman,
+        position_noise_std=args.position_noise_std,
+        kalman_measurement_std=args.kalman_measurement_std,
+        kalman_acceleration_std=args.kalman_acceleration_std,
+        seed=args.seed,
+        follow_distance=args.follow_distance,
+        trails=not args.no_trails,
     )
     leader_traj = build_leader_trajectory(args)
 
@@ -173,6 +219,13 @@ def main():
     )
     sim = LeaderFollowerSimulation(gains=gains, cfg=cfg, leader_traj=leader_traj)
     log = sim.run()
+    log["run_options_json"] = np.asarray(json.dumps(vars(args), sort_keys=True))
+    if args.trajectory == "bspline":
+        log["trajectory_control_points"] = leader_traj.points.copy()
+        log["trajectory_knots"] = leader_traj.knots.copy()
+    elif args.trajectory == "interpolated":
+        log["trajectory_endpoints"] = np.array([leader_traj.start, leader_traj.end])
+        log["trajectory_attitudes_xyzw"] = np.array([leader_traj.q0.as_array(), leader_traj.q1.as_array()])
     run_name = f"{args.simulator}_{args.experiment}_{args.trajectory}"
     save_run(log, experiment_name=run_name, output_folder=args.output)
 

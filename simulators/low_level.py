@@ -18,7 +18,7 @@ def wrap_angle(x: float) -> float:
 
 @dataclass
 class GazeboControllerConfig:
-    mass_kg: float = 0.8
+    mass_kg: float = 0.84  # body plus four 0.01 kg rotors
     gravity: float = 9.81
     motor_constant: float = 8.54858e-6  # N/(rad/s)^2
     max_motor_rpm: float = 10000.0
@@ -27,7 +27,7 @@ class GazeboControllerConfig:
     vel_kd: np.ndarray = field(default_factory=lambda: np.array([1.2, 1.2, 2.0], dtype=float))
 
     att_kp: np.ndarray = field(default_factory=lambda: np.array([4.5, 4.5, 2.5], dtype=float))
-    att_kd: np.ndarray = field(default_factory=lambda: np.array([0.18, 0.18, 0.25], dtype=float))
+    att_kd: np.ndarray = field(default_factory=lambda: np.array([0.7, 0.7, 0.7], dtype=float))
 
     max_tilt_rad: float = 0.55
     max_horizontal_accel: float = 5.0
@@ -92,10 +92,10 @@ class GazeboQuadrotorController:
 
         # X-configuration mixer.
         w2 = base_w2 * np.array([
-            1.0 + roll_mix + pitch_mix - yaw_mix,
-            1.0 - roll_mix + pitch_mix + yaw_mix,
-            1.0 - roll_mix - pitch_mix - yaw_mix,
-            1.0 + roll_mix - pitch_mix + yaw_mix,
+            1.0 + roll_mix - pitch_mix - yaw_mix,
+            1.0 + roll_mix + pitch_mix + yaw_mix,
+            1.0 - roll_mix + pitch_mix - yaw_mix,
+            1.0 - roll_mix - pitch_mix + yaw_mix,
         ])
         w2 = np.clip(w2, 0.0, self.max_motor_rad_s**2)
         return np.sqrt(w2) * 60.0 / (2.0 * np.pi)

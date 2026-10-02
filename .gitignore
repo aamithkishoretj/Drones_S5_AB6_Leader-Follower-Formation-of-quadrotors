@@ -1,0 +1,4 @@
+.venv-gazebo/
+.venv/
+__pycache__/
+*.pyc

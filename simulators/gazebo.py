@@ -27,6 +27,8 @@ import signal
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
+from .trails import FlightTrails
 import numpy as np
 
 from dq_control import Quaternion
@@ -60,7 +62,15 @@ class _GazeboRosNode:
             ) from exc
 
         self.rclpy = rclpy
-        self.node = Node("leader_follower_multi_sim")
+        self.node = None
+        self._owns_context = not rclpy.ok()
+        if self._owns_context:
+            rclpy.init(args=[])
+        try:
+            self.node = Node("leader_follower_multi_sim")
+        except BaseException:
+            self.destroy()
+            raise
         self.model_names = model_names
         self.poses: dict[str, np.ndarray] = {}
         self.pose_stamp: dict[str, float] = {}
@@ -79,13 +89,13 @@ class _GazeboRosNode:
         def callback(msg):
             self.poses[name] = np.array(
                 [
-                    msg.position.x,
-                    msg.position.y,
-                    msg.position.z,
-                    msg.orientation.x,
-                    msg.orientation.y,
-                    msg.orientation.z,
-                    msg.orientation.w,
+                    msg.pose.position.x,
+                    msg.pose.position.y,
+                    msg.pose.position.z,
+                    msg.pose.orientation.x,
+                    msg.pose.orientation.y,
+                    msg.pose.orientation.z,
+                    msg.pose.orientation.w,
                 ],
                 dtype=float,
             )
@@ -103,13 +113,19 @@ class _GazeboRosNode:
         msg = Actuators()
         msg.header.stamp = self.node.get_clock().now().to_msg()
         # Gazebo's MulticopterMotorModel expects angular velocity in rad/s;
-        # actuator_msgs exposes angular_velocities in rad/s as well.
-        msg.velocity = np.asarray(rpm, dtype=float) * 2.0 * np.pi / 60.0
+        # actuator_msgs exposes velocity in rad/s as well.
+        msg.velocity = (np.asarray(rpm, dtype=float) * 2.0 * np.pi / 60.0).tolist()
         self.pubs[name].publish(msg)
 
     def destroy(self) -> None:
-        self.node.destroy_node()
-        self.rclpy.shutdown()
+        try:
+            if self.node is not None:
+                self.node.destroy_node()
+                self.node = None
+        finally:
+            if self._owns_context:
+                self.rclpy.try_shutdown()
+                self._owns_context = False
 
 
 def _quat_angular_velocity(previous: Quaternion, current: Quaternion, dt: float) -> np.ndarray:
@@ -137,6 +153,34 @@ class GazeboBackend(SimulationBackend):
         self.previous_times: list[float | None] = [None, None]
         self.controllers = [GazeboQuadrotorController(), GazeboQuadrotorController()]
         self.model_names = ["drone_0", "drone_1"]
+        self.trails = FlightTrails()
+        self._trail_worker = None
+        self._trail_future = None
+        self._trail_last = 0.
+
+    def draw_trails(self, positions):
+        if not self.cfg.gui or not self.cfg.trails:
+            return
+        self.trails.update(positions)
+        if time.monotonic()-self._trail_last < .5:
+            return
+        if self._trail_future is not None and not self._trail_future.done():
+            return
+        if self._trail_worker is None:
+            self._trail_worker = ThreadPoolExecutor(max_workers=1)
+        requests = [self.trails.marker(i) for i in range(2) if len(self.trails.points[i]) > 1]
+        self._trail_last = time.monotonic()
+        self._trail_future = self._trail_worker.submit(self._send_trails, requests)
+
+    @staticmethod
+    def _send_trails(requests):
+        for request in requests:
+            try:
+                subprocess.run(["gz", "service", "-s", "/marker", "--reqtype", "gz.msgs.Marker",
+                                "--reptype", "gz.msgs.Empty", "--timeout", "300", "--req", request],
+                               capture_output=True, timeout=3, check=False)
+            except (OSError, subprocess.TimeoutExpired):
+                pass  # A closing GUI must not interrupt flight control.
 
     def _require_command(self, command: str) -> str:
         found = shutil.which(command)
@@ -187,6 +231,19 @@ class GazeboBackend(SimulationBackend):
         return world_path, model_root
 
     def reset(self, initial_xyzs: np.ndarray, initial_rpys: np.ndarray) -> None:
+        self.close()
+        try:
+            self._reset(initial_xyzs, initial_rpys)
+        except BaseException:
+            self.close()
+            raise
+
+    def _reset(self, initial_xyzs: np.ndarray, initial_rpys: np.ndarray) -> None:
+        self.trails = FlightTrails()
+        self._trail_last = 0.
+        self.states = []
+        self.previous_poses = [None, None]
+        self.previous_times = [None, None]
         gz = self._require_command("gz")
         ros2 = self._require_command("ros2")
 
@@ -200,7 +257,7 @@ class GazeboBackend(SimulationBackend):
         env["GZ_SIM_RESOURCE_PATH"] = os.pathsep.join(resource_paths)
 
         if self.cfg.gui:
-            sim_cmd = [gz, "sim", "-r", str(world_path)]
+            sim_cmd = [gz, "sim", "-r", "--render-engine-gui", self.cfg.gazebo_render_engine, str(world_path)]
         else:
             sim_cmd = [gz, "sim", "-r", "-s", str(world_path)]
 
@@ -263,6 +320,9 @@ class GazeboBackend(SimulationBackend):
 
             sim_now = self.node.pose_stamp.get(name, 0.0)
             previous_sim_time = self.previous_times[i]
+            if previous_sim_time is not None and sim_now <= previous_sim_time and self.states:
+                out.append(self.states[i])
+                continue
             if self.previous_poses[i] is not None and previous_sim_time is not None:
                 dt = max(1e-6, sim_now - previous_sim_time)
                 velocity = (pos - self.previous_poses[i][:3]) / dt
@@ -327,6 +387,10 @@ class GazeboBackend(SimulationBackend):
         return self.get_states()
 
     def close(self) -> None:
+        if self._trail_worker is not None:
+            self._trail_worker.shutdown(wait=True, cancel_futures=True)
+            self._trail_worker = None
+            self._trail_future = None
         if self.node is not None:
             try:
                 self.node.destroy()

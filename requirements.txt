@@ -1,5 +1,6 @@
 # Core numerics
-numpy>=1.23,<2.0
+numpy>=1.23,<2.0; python_version < "3.13"
+numpy>=2.1; python_version >= "3.13"
 scipy>=1.9
 
 # Config + plotting + logging

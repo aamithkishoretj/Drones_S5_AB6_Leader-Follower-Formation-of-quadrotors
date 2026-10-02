@@ -23,6 +23,7 @@ from pathlib import Path
 import numpy as np
 
 from .base import DroneState, SimConfig, SimulationBackend, VehicleCommand
+from .trails import FlightTrails, COLORS
 
 
 class MuJoCoBackend(SimulationBackend):
@@ -38,6 +39,7 @@ class MuJoCoBackend(SimulationBackend):
 
         self.mujoco = mujoco
         self.cfg = cfg
+        self.trails = FlightTrails(max_points=500)
 
         self.model = None
         self.data = None
@@ -519,3 +521,22 @@ class MuJoCoBackend(SimulationBackend):
         self.viewer = None
         self.model = None
         self.data = None
+        self.trails = FlightTrails(max_points=500)
+
+    def draw_trails(self, positions):
+        if self.viewer is None or not self.cfg.trails:
+            return
+        self.trails.update(positions)
+        with self.viewer.lock():
+            scene = self.viewer.user_scn
+            scene.ngeom = 0
+            for i, points in enumerate(self.trails.points):
+                points = list(points)
+                for a, b in zip(points, points[1:]):
+                    if scene.ngeom >= scene.maxgeom:
+                        break
+                    geom = scene.geoms[scene.ngeom]
+                    self.mujoco.mjv_initGeom(geom, self.mujoco.mjtGeom.mjGEOM_CAPSULE,
+                        np.zeros(3), np.zeros(3), np.eye(3).ravel(), np.array(COLORS[i], dtype=np.float32))
+                    self.mujoco.mjv_connector(geom, self.mujoco.mjtGeom.mjGEOM_CAPSULE, .008, a, b)
+                    scene.ngeom += 1

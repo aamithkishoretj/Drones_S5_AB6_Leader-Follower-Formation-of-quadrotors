@@ -1,0 +1,12 @@
+# Python virtual environments
+.venv/
+.venv-gazebo/
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
