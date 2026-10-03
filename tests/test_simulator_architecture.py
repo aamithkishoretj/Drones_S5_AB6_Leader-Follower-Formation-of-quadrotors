@@ -112,3 +112,13 @@ def test_repeated_gazebo_pose_preserves_velocity():
     assert np.allclose(backend.states[0].velocity, [1, 0, 0])
     repeated = backend._read_states()
     assert np.allclose(repeated[0].velocity, [1, 0, 0])
+
+
+def test_gazebo_angular_velocity_is_quaternion_sign_invariant():
+    from dq_control import Quaternion
+    from simulators.gazebo import _quat_angular_velocity
+    previous = Quaternion.from_rpy([.1, .2, 3.1])
+    current = previous * Quaternion.from_rotvec([0, 0, 1], .01)
+    expected = _quat_angular_velocity(previous, current, .02)
+    assert np.allclose(expected, [0, 0, .5])
+    assert np.allclose(_quat_angular_velocity(previous, -current, .02), expected)

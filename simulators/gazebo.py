@@ -27,6 +27,8 @@ import signal
 import subprocess
 import tempfile
 import time
+import uuid
+import yaml
 from concurrent.futures import ThreadPoolExecutor
 from .trails import FlightTrails
 import numpy as np
@@ -41,12 +43,14 @@ class GazeboRuntime:
     sim_process: subprocess.Popen | None = None
     bridge_process: subprocess.Popen | None = None
     temp_root: Path | None = None
+    log_handle: object = None
+    log_path: Path | None = None
 
 
 class _GazeboRosNode:
     """Small rclpy adapter kept isolated from the rest of the Python code."""
 
-    def __init__(self, model_names: list[str]):
+    def __init__(self, model_names: list[str], topic_prefix: str = ""):
         try:
             import rclpy
             from rclpy.node import Node
@@ -77,12 +81,12 @@ class _GazeboRosNode:
         self.pubs = {}
 
         for name in model_names:
-            topic = f"/model/{name}/pose"
+            topic = f"{topic_prefix}/model/{name}/pose"
             self.node.create_subscription(
                 PoseStamped, topic, self._make_pose_callback(name), 10
             )
             self.pubs[name] = self.node.create_publisher(
-                Actuators, f"/{name}/gazebo/command/motor_speed", 10
+                Actuators, f"{topic_prefix}/{name}/gazebo/command/motor_speed", 10
             )
 
     def _make_pose_callback(self, name: str):
@@ -132,6 +136,8 @@ def _quat_angular_velocity(previous: Quaternion, current: Quaternion, dt: float)
     if previous is None or dt <= 0.0:
         return np.zeros(3)
     dq = previous.conj() * current
+    if dq.scalar < 0:
+        dq = -dq
     angle = 2.0 * math.atan2(np.linalg.norm(dq.vec), abs(dq.scalar))
     if angle < 1e-9:
         return np.zeros(3)
@@ -157,6 +163,7 @@ class GazeboBackend(SimulationBackend):
         self._trail_worker = None
         self._trail_future = None
         self._trail_last = 0.
+        self._transport_env = None
 
     def draw_trails(self, positions):
         if not self.cfg.gui or not self.cfg.trails:
@@ -170,15 +177,15 @@ class GazeboBackend(SimulationBackend):
             self._trail_worker = ThreadPoolExecutor(max_workers=1)
         requests = [self.trails.marker(i) for i in range(2) if len(self.trails.points[i]) > 1]
         self._trail_last = time.monotonic()
-        self._trail_future = self._trail_worker.submit(self._send_trails, requests)
+        self._trail_future = self._trail_worker.submit(self._send_trails, requests, self._transport_env)
 
     @staticmethod
-    def _send_trails(requests):
+    def _send_trails(requests, env=None):
         for request in requests:
             try:
                 subprocess.run(["gz", "service", "-s", "/marker", "--reqtype", "gz.msgs.Marker",
                                 "--reptype", "gz.msgs.Empty", "--timeout", "300", "--req", request],
-                               capture_output=True, timeout=3, check=False)
+                               capture_output=True, timeout=3, check=False, env=env)
             except (OSError, subprocess.TimeoutExpired):
                 pass  # A closing GUI must not interrupt flight control.
 
@@ -250,6 +257,14 @@ class GazeboBackend(SimulationBackend):
         world_path, model_root = self._write_runtime_world(initial_xyzs, initial_rpys)
 
         env = os.environ.copy()
+        run_id = "formation_" + uuid.uuid4().hex
+        env["GZ_PARTITION"] = run_id
+        topic_prefix = "/" + run_id
+        self._transport_env = env
+        # Qt's raster-only scene graph cannot display Gazebo's OpenGL scene.
+        if env.get("QT_QUICK_BACKEND") == "software":
+            env.pop("QT_QUICK_BACKEND")
+            print("[gazebo] Removed incompatible QT_QUICK_BACKEND=software; OpenGL is required.", flush=True)
         existing_resources = env.get("GZ_SIM_RESOURCE_PATH", "")
         resource_paths = [str(model_root)]
         if existing_resources:
@@ -261,10 +276,15 @@ class GazeboBackend(SimulationBackend):
         else:
             sim_cmd = [gz, "sim", "-r", "-s", str(world_path)]
 
+        log_dir = Path(self.cfg.output_folder)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        self.runtime.log_path = log_dir / f"gazebo_runtime_{os.getpid()}_{time.time_ns()}.log"
+        self.runtime.log_handle = self.runtime.log_path.open("w")
+        print(f"[gazebo] Runtime log: {self.runtime.log_path}", flush=True)
         self.runtime.sim_process = subprocess.Popen(
             sim_cmd,
             env=env,
-            stdout=subprocess.DEVNULL,
+            stdout=self.runtime.log_handle,
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
@@ -272,6 +292,11 @@ class GazeboBackend(SimulationBackend):
         bridge_config = Path(__file__).resolve().parents[1] / "gazebo" / "config" / "bridge.yaml"
         if not bridge_config.exists():
             raise RuntimeError(f"Bridge configuration missing: {bridge_config}")
+        bridge_data = yaml.safe_load(bridge_config.read_text())
+        for entry in bridge_data:
+            entry["ros_topic_name"] = topic_prefix + entry["ros_topic_name"]
+        bridge_config = self.runtime.temp_root / "bridge.yaml"
+        bridge_config.write_text(yaml.safe_dump(bridge_data))
 
         self.runtime.bridge_process = subprocess.Popen(
             [
@@ -284,7 +309,7 @@ class GazeboBackend(SimulationBackend):
             start_new_session=True,
         )
 
-        self.node = _GazeboRosNode(self.model_names)
+        self.node = _GazeboRosNode(self.model_names, topic_prefix)
         deadline = time.monotonic() + 20.0
         while time.monotonic() < deadline:
             self.node.spin_once(0.1)
@@ -345,6 +370,9 @@ class GazeboBackend(SimulationBackend):
         return out
 
     def get_states(self) -> list[DroneState]:
+        if self.runtime.sim_process is not None and self.runtime.sim_process.poll() is not None:
+            raise RuntimeError(f"Gazebo exited with code {self.runtime.sim_process.returncode}. "
+                               f"See {self.runtime.log_path}")
         if self.node is not None:
             self.node.spin_once(0.0)
             if all(name in self.node.poses for name in self.model_names):
@@ -414,6 +442,9 @@ class GazeboBackend(SimulationBackend):
 
         self.runtime.bridge_process = None
         self.runtime.sim_process = None
+        if self.runtime.log_handle is not None:
+            self.runtime.log_handle.close()
+            self.runtime.log_handle = None
 
         if self.runtime.temp_root is not None:
             shutil.rmtree(self.runtime.temp_root, ignore_errors=True)

@@ -38,3 +38,14 @@ def test_adapter_preserves_existing_ros_context():
     finally:
         if own_context:
             rclpy.try_shutdown()
+
+
+def test_runs_use_separate_command_topics():
+    a = _GazeboRosNode(["drone_0"], "/run_a")
+    b = _GazeboRosNode(["drone_0"], "/run_b")
+    try:
+        assert a.pubs["drone_0"].topic_name == "/run_a/drone_0/gazebo/command/motor_speed"
+        assert b.pubs["drone_0"].topic_name == "/run_b/drone_0/gazebo/command/motor_speed"
+    finally:
+        b.destroy()
+        a.destroy()
