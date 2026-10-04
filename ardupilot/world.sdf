@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <world name="formation_ardupilot">
+    <physics name="1ms" type="ignore">
+      <max_step_size>0.001</max_step_size><real_time_factor>1.0</real_time_factor>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu"/>
+    <scene><ambient>0.8 0.8 0.8</ambient><background>0.65 0.8 0.95</background></scene>
+    <spherical_coordinates>
+      <surface_model>EARTH_WGS84</surface_model><latitude_deg>-35.363262</latitude_deg>
+      <longitude_deg>149.165237</longitude_deg><elevation>584</elevation><heading_deg>0</heading_deg>
+    </spherical_coordinates>
+    <light name="sun" type="directional">
+      <pose>0 0 10 0 0 0</pose><diffuse>0.9 0.9 0.9 1</diffuse><specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.4 0.2 -0.9</direction><cast_shadows>true</cast_shadows>
+    </light>
+    <model name="ground">
+      <static>true</static><link name="ground">
+        <collision name="floor"><geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry></collision>
+        <visual name="floor"><geometry><plane><normal>0 0 1</normal><size>100 100</size></plane></geometry>
+          <material><ambient>0.35 0.4 0.45 1</ambient><diffuse>0.35 0.4 0.45 1</diffuse></material></visual>
+      </link>
+    </model>
+    <include><uri>model://formation_iris_0</uri><name>leader</name><pose>0 0 0.195 0 0 0</pose></include>
+    <include><uri>model://formation_iris_1</uri><name>follower</name><pose>-0.8 0 0.195 0 0 0</pose></include>
+  </world>
+</sdf>

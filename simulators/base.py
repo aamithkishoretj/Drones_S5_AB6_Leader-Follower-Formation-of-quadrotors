@@ -84,6 +84,13 @@ class SimConfig:
     kalman_measurement_std: float = 0.03
     kalman_acceleration_std: float = 0.5
     seed: int = 0
+    ardupilot_path: str | None = None
+    ardupilot_gazebo_path: str | None = None
+    ardupilot_startup_timeout: float = 120.0
+    ardupilot_land_timeout: float = 60.0
+    ardupilot_max_speed: float = 2.0
+    ardupilot_low_resource: bool = False
+    ardupilot_min_separation: float = .65
 
     def control_timestep(self) -> float:
         if self.ctrl_freq <= 0:
@@ -95,6 +102,11 @@ class SimulationBackend(ABC):
     """Minimal interface implemented by every simulator backend."""
 
     name: str
+
+    @property
+    def elapsed_time(self) -> float | None:
+        """Optional flight clock, measured after startup/takeoff in simulator time."""
+        return None
 
     def draw_trails(self, positions) -> None:
         """Optional visualization of actual vehicle motion."""

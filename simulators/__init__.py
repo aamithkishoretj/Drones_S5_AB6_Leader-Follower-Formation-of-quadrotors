@@ -9,6 +9,7 @@ from .gym_pybullet import GymPyBulletDronesBackend
 from .gazebo import GazeboBackend
 from .mujoco import MuJoCoBackend
 from .kinematic import KinematicBackend
+from .ardupilot import ArduPilotBackend
 
 
 class SimulatorNotImplemented(RuntimeError):
@@ -43,8 +44,7 @@ register_backend("gazebo", GazeboBackend)
 register_backend("mujoco", MuJoCoBackend)
 register_backend("kinematic", KinematicBackend)
 
-# Future backends
-register_backend("ardupilot", _not_implemented("ardupilot"))
+register_backend("ardupilot", ArduPilotBackend)
 
 
 __all__ = [

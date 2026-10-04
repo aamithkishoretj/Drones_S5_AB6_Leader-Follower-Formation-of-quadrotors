@@ -37,10 +37,10 @@ def main():
 
     targets = {
         "pybullet": ["gym-pybullet-drones"],
-        "ardupilot": ["ardupilot"],
+        "ardupilot": ["ardupilot", "ardupilot_gazebo"],
         "mujoco": [],
         "gazebo": [],
-        "all": ["gym-pybullet-drones", "ardupilot"],
+        "all": ["gym-pybullet-drones", "ardupilot", "ardupilot_gazebo"],
     }[args.simulator]
 
     for repo in targets:
@@ -49,8 +49,7 @@ def main():
 
     if args.simulator in ("mujoco", "all"):
         print(
-            "[setup] MuJoCo backend is reserved in the architecture. "
-            "Install the Python package in your virtual environment when its backend is added."
+            "[setup] Install the MuJoCo Python package in your virtual environment: pip install mujoco"
         )
 
     if args.simulator in ("gazebo", "all"):
@@ -61,6 +60,8 @@ def main():
 
     if not targets:
         print_dependency_status()
+    if args.simulator in ("ardupilot", "all"):
+        print("[setup] Sources ready. Build/install with bash scripts/setup_ardupilot.sh; see ardupilot/README.md")
 
 
 if __name__ == "__main__":

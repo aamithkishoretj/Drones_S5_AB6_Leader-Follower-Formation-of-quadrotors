@@ -15,6 +15,12 @@ EXTERNAL_REPOS = {
     "ardupilot": {
         "url": "https://github.com/ArduPilot/ardupilot.git",
         "directory": "ardupilot",
+        "ref": "Copter-4.5.7",
+    },
+    "ardupilot_gazebo": {
+        "url": "https://github.com/ArduPilot/ardupilot_gazebo.git",
+        "directory": "ardupilot_gazebo",
+        "commit": "082a0fe231f6e63bc8d1598f1cba461d9e2ea7f5",
     },
 }
 
@@ -45,10 +51,13 @@ def ensure_external_repo(name: str, *, update: bool = False) -> Path:
             subprocess.run(["git", "-C", str(destination), "pull", "--ff-only"], check=True)
         return destination
 
-    subprocess.run(
-        ["git", "clone", "--depth", "1", meta["url"], str(destination)],
-        check=True,
-    )
+    command = ["git", "clone", "--depth", "1"]
+    if meta.get("ref"):
+        command += ["--branch", meta["ref"]]
+    subprocess.run(command + [meta["url"], str(destination)], check=True)
+    if meta.get("commit"):
+        subprocess.run(["git", "-C", str(destination), "fetch", "--depth", "1", "origin", meta["commit"]], check=True)
+        subprocess.run(["git", "-C", str(destination), "checkout", "--detach", meta["commit"]], check=True)
     return destination
 
 

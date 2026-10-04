@@ -4,6 +4,13 @@
 
 # AB6: Introduction to Drones — Leader-Follower Formation of Two Quadrotors
 
+**ArduPilot + Gazebo live demo:** see [setup and run instructions](ardupilot/README.md).
+After one-time installation, `bash scripts/run_ardupilot.sh 60` launches two
+ArduCopter SITLs, takes off, shows 60 seconds of leader–follower flight in
+Gazebo with red/blue trails, then lands and stops. VS Code tasks also prompt
+for duration. This backend reuses the formation controller and lets ArduPilot
+handle low-level flight control.
+
 **Course-concept extensions:** See [the runnable guide](docs/course_concepts.md)
 for B-spline and LERP/SLERP references, optional position Kalman filtering,
 CVXPY path smoothing, hover stability/prediction, and Taylor/RK45 examples.

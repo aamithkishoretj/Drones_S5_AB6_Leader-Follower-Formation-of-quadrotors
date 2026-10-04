@@ -50,6 +50,14 @@ def parse_args():
     p.add_argument("--gazebo_render_engine", choices=["ogre2", "ogre"], default="ogre2",
                    help="Gazebo GUI renderer; try ogre for WSL graphics issues")
     p.add_argument("--output", type=str, default=os.path.join(_ROOT, "results"))
+    ap = p.add_argument_group("ArduPilot SITL + Gazebo")
+    ap.add_argument("--ardupilot_path", help="ArduPilot source/build directory (default: sibling ardupilot)")
+    ap.add_argument("--ardupilot_gazebo_path", help="Built official Gazebo plugin directory (default: sibling ardupilot_gazebo)")
+    ap.add_argument("--ardupilot_startup_timeout", type=float, default=120., help="Wall seconds allowed for connection, EKF readiness and takeoff")
+    ap.add_argument("--ardupilot_land_timeout", type=float, default=60., help="Wall seconds allowed for landing before stopping SITL")
+    ap.add_argument("--ardupilot_max_speed", type=float, default=2., help="Maximum commanded velocity norm in m/s")
+    ap.add_argument("--ardupilot_low_resource", action="store_true", help="400 Hz physics, no shadows, reduced rendering cost")
+    ap.add_argument("--ardupilot_min_separation", type=float, default=.65, help="Stop tracking when the Iris vehicles get closer than this distance (m)")
     p.add_argument("--trajectory_file", help="JSON control points/knots or interpolation endpoints; see configs/course_*.json")
     p.add_argument("--optimize_path", action="store_true", help="Smooth B-spline control points with CVXPY")
     p.add_argument("--kalman", action="store_true", help="Estimate position/velocity from position measurements")
@@ -209,6 +217,13 @@ def main():
         seed=args.seed,
         follow_distance=args.follow_distance,
         trails=not args.no_trails,
+        ardupilot_path=args.ardupilot_path,
+        ardupilot_gazebo_path=args.ardupilot_gazebo_path,
+        ardupilot_startup_timeout=args.ardupilot_startup_timeout,
+        ardupilot_land_timeout=args.ardupilot_land_timeout,
+        ardupilot_max_speed=args.ardupilot_max_speed,
+        ardupilot_low_resource=args.ardupilot_low_resource,
+        ardupilot_min_separation=args.ardupilot_min_separation,
     )
     leader_traj = build_leader_trajectory(args)
 

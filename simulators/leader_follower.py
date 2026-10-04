@@ -79,8 +79,15 @@ class LeaderFollowerSimulation:
         )}
 
         try:
-            for step in range(num_steps):
-                t = step * self.ctrl_timestep
+            step = 0
+            previous_t = None
+            while True:
+                clock = self.backend.elapsed_time
+                t = step * self.ctrl_timestep if clock is None else clock
+                if (clock is None and step >= num_steps) or t >= cfg.duration_sec:
+                    break
+                dt = self.ctrl_timestep if previous_t is None else max(t - previous_t, 1e-6)
+                previous_t = t
                 states = self.backend.get_states()
                 truth = states
                 if cfg.trails:
@@ -99,7 +106,7 @@ class LeaderFollowerSimulation:
                 Qd_leader = self.leader_traj.desired_pose(t)
                 omega_d_L, v_d_L = self.leader_traj.desired_twist(t)
                 omega_cmd_L, v_cmd_L = self.leader_ctrl.compute(
-                    Q_leader, Qd_leader, omega_d_L, v_d_L, self.ctrl_timestep
+                    Q_leader, Qd_leader, omega_d_L, v_d_L, dt
                 )
                 target_pos_L, target_rpy_L = self._target_from_twist(
                     Q_leader, omega_cmd_L, v_cmd_L
@@ -115,14 +122,14 @@ class LeaderFollowerSimulation:
                     t,
                     leader_state.position,
                     leader_state.attitude,
-                    self.ctrl_timestep,
+                    dt,
                     leader_velocity=leader_state.velocity,
                     leader_angular_velocity=leader_state.angular_velocity,
                     reference_heading=reference_heading,
                     reference_heading_rate=reference_heading_rate,
                 )
                 omega_cmd_F, v_cmd_F = self.follower_ctrl.compute(
-                    Q_follower, Qd_follower, omega_d_F, v_d_F, self.ctrl_timestep
+                    Q_follower, Qd_follower, omega_d_F, v_d_F, dt
                 )
                 target_pos_F, target_rpy_F = self._target_from_twist(
                     Q_follower, omega_cmd_F, v_cmd_F
@@ -133,6 +140,7 @@ class LeaderFollowerSimulation:
                     VehicleCommand(target_pos_F, target_rpy_F, v_cmd_F, omega_cmd_F),
                 ])
                 self.backend.step()
+                step += 1
 
                 log["t"].append(t)
                 log["leader_pos"].append(truth[0].position.copy())
