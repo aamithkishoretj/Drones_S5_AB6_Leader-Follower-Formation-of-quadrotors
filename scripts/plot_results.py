@@ -20,12 +20,15 @@ if _ROOT not in sys.path:
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 from utils import load_run, position_error_metrics, attitude_error_metrics
 
 
 def trajectory_title(log: dict):
     title = "Leader and Follower Trajectories"
+    if str(log.get("controller", "")) == "data_driven":
+        title = "Data-driven DQ Leader and Follower Trajectories"
     if "run_options_json" in log:
         options = json.loads(str(log["run_options_json"]))
         frequency_key = {"lemniscate": "w_d", "potato_chip": "chip_w"}.get(options.get("trajectory"))
@@ -34,6 +37,8 @@ def trajectory_title(log: dict):
             duration = float(options.get("duration", 0))
             coverage = "partial cycle" if duration < period - 1e-6 else f"{duration/period:g} reference cycle(s)"
             title += f"\n{duration:g} s recorded; {period:g} s/cycle — {coverage}"
+        elif options.get("trajectory") == "bspline":
+            title += f"\nB-spline traversal: {float(options.get('duration', 0)):g} s"
     return title
 
 
@@ -69,6 +74,8 @@ def plot_trajectories_3d(log: dict, save_path: str | None):
     ax.set_xlabel("X [m]")
     ax.set_ylabel("Y [m]")
     ax.set_zlabel("Z [m]")
+    for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+        axis.set_major_locator(MaxNLocator(nbins=3))
     # Equal scale in metres; the small altitude ripple is not exaggerated.
     positions = np.concatenate([log[key] for key in
                                 ("leader_pos_d", "follower_pos_d", "leader_pos", "follower_pos")])
@@ -135,7 +142,7 @@ def main():
     base = os.path.splitext(os.path.basename(args.run))[0]
 
     plot_trajectories(log, save_path=os.path.join(out_dir, f"{base}_trajectories.png"))
-    if "run_options_json" in log and json.loads(str(log["run_options_json"])).get("trajectory") == "potato_chip":
+    if "run_options_json" in log and json.loads(str(log["run_options_json"])).get("trajectory") in ("potato_chip", "bspline"):
         plot_trajectories_3d(log, save_path=os.path.join(out_dir, f"{base}_trajectories_3d.png"))
     plot_axis_tracking(log, "leader", save_path=os.path.join(out_dir, f"{base}_leader.png"))
     plot_axis_tracking(log, "follower", save_path=os.path.join(out_dir, f"{base}_follower.png"))

@@ -1,8 +1,12 @@
 # ArduPilot SITL + Gazebo live leader–follower demonstration
 
 Run two Iris quadrotors in **Gazebo Harmonic**, each controlled by its own
-**ArduCopter SITL**. The existing Python dual-quaternion formation controller
-commands velocity and yaw rate over MAVLink in Guided mode. ArduCopter handles
+**ArduCopter SITL**. A data-driven dual-quaternion predictive controller now
+commands velocity and yaw rate over MAVLink in Guided mode. Its flight-stack
+response model is learned from generated simulator flights, and its learned
+predictions select both drones' commands inside the actual flight loop.
+See [training and validation details](../docs/data_driven.md).
+ArduCopter handles
 the attitude, thrust and motors. **ROS 2 is not required for this backend.**
 
 ## One-time installation
@@ -100,7 +104,7 @@ the normal landing/cleanup attempt. `--ardupilot_min_separation` changes this
 threshold. This check is not predictive collision avoidance and does not
 guarantee separation during landing.
 
-The full 60-second Iris preset was validated headlessly on 4 October 2026:
+The original analytical-controller 60-second Iris preset was validated headlessly on 4 October 2026:
 leader position RMS error 0.034 m, follower RMS error 0.073 m, and minimum
 measured drone separation 1.04 m. Both drones landed and disarmed. The saved
 run and plots are in `results/ardupilot_validation/` for this checkout.
@@ -120,7 +124,7 @@ following gap, and reference altitude varying from 1.5 to 2.5 m twice per
 revolution (`z = 2 + 0.5 cos(2 theta)`). Change `60` to the required tracking
 duration; takeoff and landing are extra. A shorter run shows part of the curve.
 
-The 60-second preset was validated headlessly on 4 October 2026: leader
+The original analytical-controller 60-second preset was validated headlessly on 4 October 2026: leader
 position RMS error 0.027 m, follower RMS error 0.051 m, minimum measured
 separation 1.23 m. Both drones landed and disarmed. The run is saved as
 `results/ardupilot_validation/ardupilot_real_eig_potato_chip_20261004_162130.npz`.

@@ -91,6 +91,8 @@ class SimConfig:
     ardupilot_max_speed: float = 2.0
     ardupilot_low_resource: bool = False
     ardupilot_min_separation: float = .65
+    controller: str = "analytical"
+    dynamics_model: str | None = None
 
     def control_timestep(self) -> float:
         if self.ctrl_freq <= 0:

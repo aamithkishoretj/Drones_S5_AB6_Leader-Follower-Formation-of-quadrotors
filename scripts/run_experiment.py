@@ -50,6 +50,10 @@ def parse_args():
     p.add_argument("--gazebo_render_engine", choices=["ogre2", "ogre"], default="ogre2",
                    help="Gazebo GUI renderer; try ogre for WSL graphics issues")
     p.add_argument("--output", type=str, default=os.path.join(_ROOT, "results"))
+    p.add_argument("--controller", choices=["auto", "analytical", "data_driven"], default="auto",
+                   help="ArduPilot defaults to learned dual-quaternion predictive control; analytical is the legacy teacher")
+    p.add_argument("--dynamics_model", default=os.path.join(_ROOT, "models", "ardupilot_dq_dynamics.npz"),
+                   help="Validated SITL command-response model required by the data-driven controller")
     ap = p.add_argument_group("ArduPilot SITL + Gazebo")
     ap.add_argument("--ardupilot_path", help="ArduPilot source/build directory (default: sibling ardupilot)")
     ap.add_argument("--ardupilot_gazebo_path", help="Built official Gazebo plugin directory (default: sibling ardupilot_gazebo)")
@@ -197,8 +201,15 @@ def main():
         follower_offset_mode = "body" if args.trajectory == "potato_chip" else "world"
 
     gains = get_gains(args.experiment)
+    controller = args.controller
+    if controller == "auto":
+        controller = "data_driven" if args.simulator == "ardupilot" else "analytical"
+    if controller == "data_driven" and args.simulator != "ardupilot":
+        raise ValueError("The learned model is specific to ArduPilot; select --simulator ardupilot")
     cfg = SimConfig(
         simulator=args.simulator,
+        controller=controller,
+        dynamics_model=args.dynamics_model,
         gazebo_render_engine=args.gazebo_render_engine,
         duration_sec=args.duration,
         pyb_freq=args.pyb_freq,
@@ -230,11 +241,12 @@ def main():
     print(
         f"[run_experiment] simulator={args.simulator}  experiment={args.experiment}  "
         f"trajectory={args.trajectory}  follower_offset_mode={follower_offset_mode}  "
-        f"duration={args.duration}s  gui={args.gui}"
+        f"duration={args.duration}s  gui={args.gui} controller={controller}"
     )
     sim = LeaderFollowerSimulation(gains=gains, cfg=cfg, leader_traj=leader_traj)
     log = sim.run()
     log["run_options_json"] = np.asarray(json.dumps(vars(args), sort_keys=True))
+    log["controller"] = np.asarray(controller)
     if args.trajectory == "bspline":
         log["trajectory_control_points"] = leader_traj.points.copy()
         log["trajectory_knots"] = leader_traj.knots.copy()

@@ -5,29 +5,68 @@
       "label": "ArduPilot: live leader-follower demo",
       "type": "process",
       "command": "bash",
-      "args": ["${workspaceFolder}/scripts/run_ardupilot.sh", "${input:duration}"],
-      "options": {"cwd": "${workspaceFolder}"},
+      "args": [
+        "${workspaceFolder}/scripts/run_ardupilot.sh",
+        "${input:duration}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "problemMatcher": [],
-      "presentation": {"reveal": "always", "panel": "dedicated"}
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
     },
     {
       "label": "ArduPilot: potato-chip demo",
       "type": "process",
       "command": "bash",
-      "args": ["${workspaceFolder}/scripts/run_ardupilot_potato_chip.sh", "${input:duration}"],
-      "options": {"cwd": "${workspaceFolder}"},
+      "args": [
+        "${workspaceFolder}/scripts/run_ardupilot_potato_chip.sh",
+        "${input:duration}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
       "problemMatcher": [],
-      "presentation": {"reveal": "always", "panel": "dedicated"}
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "ArduPilot: generate data and train DQ model",
+      "type": "process",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/scripts/train_data_driven.sh"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
     },
     {
       "label": "ArduPilot: check setup",
       "type": "process",
       "command": "${workspaceFolder}/.venv/bin/python",
-      "args": ["${workspaceFolder}/scripts/check_ardupilot.py"],
+      "args": [
+        "${workspaceFolder}/scripts/check_ardupilot.py"
+      ],
       "problemMatcher": []
     }
   ],
   "inputs": [
-    {"id": "duration", "type": "promptString", "description": "Flight tracking duration in simulation seconds (takeoff/landing are extra)", "default": "60"}
+    {
+      "id": "duration",
+      "type": "promptString",
+      "description": "Flight tracking duration in simulation seconds (takeoff/landing are extra)",
+      "default": "60"
+    }
   ]
 }

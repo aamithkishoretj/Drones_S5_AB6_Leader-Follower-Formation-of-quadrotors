@@ -1,0 +1,35 @@
+{
+  "bspline": {
+    "file": "results/data_driven/closed_loop/ardupilot_real_eig_bspline_20261006_212822.npz",
+    "duration_seconds": 40.0,
+    "last_logged_time": 39.934999999999995,
+    "samples": 413,
+    "leader_position_rms_m": 0.046506372126595585,
+    "leader_max_error_m": 0.1000435270834933,
+    "follower_position_rms_m": 0.06550811368866484,
+    "follower_max_error_m": 0.14178466987230404,
+    "minimum_measured_separation_m": 0.8600422681477572
+  },
+  "lemniscate": {
+    "file": "results/data_driven/closed_loop/ardupilot_real_eig_lemniscate_20261006_212241.npz",
+    "duration_seconds": 60.0,
+    "last_logged_time": 59.943000000000005,
+    "samples": 761,
+    "leader_position_rms_m": 0.07926338194662275,
+    "leader_max_error_m": 0.24509119475970456,
+    "follower_position_rms_m": 0.0866967498234753,
+    "follower_max_error_m": 0.2722381467925638,
+    "minimum_measured_separation_m": 0.9777555556484873
+  },
+  "potato_chip": {
+    "file": "results/data_driven/closed_loop/ardupilot_real_eig_potato_chip_20261006_212523.npz",
+    "duration_seconds": 60.0,
+    "last_logged_time": 59.985,
+    "samples": 711,
+    "leader_position_rms_m": 0.0690660649542244,
+    "leader_max_error_m": 0.1514645653632437,
+    "follower_position_rms_m": 0.0702286202272998,
+    "follower_max_error_m": 0.20594621401399787,
+    "minimum_measured_separation_m": 1.277720774874883
+  }
+}

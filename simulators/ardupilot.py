@@ -137,6 +137,7 @@ class ArduPilotBackend(SimulationBackend):
         self.flying = False
         self.last_progress = 0.
         self.wait_label = None
+        self.last_applied_commands = None
 
     @property
     def elapsed_time(self):
@@ -373,11 +374,14 @@ class ArduPilotBackend(SimulationBackend):
                                "Use a larger trajectory and a wider following gap (see the ArduPilot demo launchers).")
         if any(not v.armed or v.mode != 4 for v in self.vehicles):
             raise RuntimeError("A drone left armed Guided mode; ending demonstration")
+        applied = []
         for v, state, command in zip(self.vehicles, states, commands):
             velocity, yaw_rate = guided_velocity(command, state, self.cfg.ardupilot_max_speed)
+            applied.append(np.r_[ENU_NED @ velocity, -yaw_rate])
             v.connection.mav.set_position_target_local_ned_send(
                 int(v.boot_time * 1000), v.connection.target_system, v.connection.target_component,
                 1, VELOCITY_YAW_RATE_MASK, 0, 0, 0, *velocity, 0, 0, 0, 0, yaw_rate)
+        self.last_applied_commands = np.array(applied)
 
     def step(self):
         before = [v.boot_time for v in self.vehicles]

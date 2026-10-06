@@ -10,7 +10,7 @@ if [[ ! -x "$TASK_ROOT/.venv/bin/python" ]]; then
 fi
 cd "$TASK_ROOT"
 exec .venv/bin/python scripts/run_experiment.py --simulator ardupilot \
-  --experiment real_eig --trajectory lemniscate --duration "$TASK_DURATION" --gui \
+  --experiment real_eig --controller data_driven --trajectory lemniscate --duration "$TASK_DURATION" --gui \
   --ardupilot_low_resource --ctrl_freq 24 --gazebo_render_engine ogre \
   --r_x 2.55 --r_y 1.95 --w_d 0.10471975511965977 --z0 2 \
   --follow_distance 1.5 "$@"

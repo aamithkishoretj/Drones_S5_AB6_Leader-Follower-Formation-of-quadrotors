@@ -290,7 +290,8 @@ def test_startup_tracks_and_lands_with_protocol_peer(tmp_path, plugin, monkeypat
     sim = LeaderFollowerSimulation(get_gains("real_eig"), cfg, LeaderTrajectory(), backend=backend)
     log = sim.run()
     assert len(log["t"]) > 0
-    assert log["t"][0] == 0.
+    # The flight timestamp is refreshed with telemetry before evaluating targets.
+    assert np.isclose(log["t"][0], .025)  # one refresh from this 25-ms protocol peer
     assert np.all(log["t"] < cfg.duration_sec)
     assert np.allclose(log["leader_pos"][:, 2], 1.)
     assert [name for name, _ in launches] == ["gazebo", "sitl_0", "sitl_1"]

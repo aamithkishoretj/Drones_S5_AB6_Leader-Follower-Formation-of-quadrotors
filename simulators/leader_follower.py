@@ -36,8 +36,18 @@ class LeaderFollowerSimulation:
         if cfg.follower_offset_mode == "body" and cfg.follower_heading_source == "velocity":
             self.follower_traj.reset(initial_heading=self.leader_traj.yaw(0.0))
 
-        self.leader_ctrl = KinematicController(gains["leader"])
-        self.follower_ctrl = KinematicController(gains["follower"])
+        if cfg.controller == "data_driven":
+            from dq_control.data_driven import IdentifiedDynamics, DataDrivenDQController
+            if cfg.simulator != "ardupilot" or not cfg.dynamics_model:
+                raise ValueError("Data-driven control requires ArduPilot and a trained dynamics model")
+            model = IdentifiedDynamics.load(cfg.dynamics_model)
+            self.leader_ctrl = DataDrivenDQController(model)
+            self.follower_ctrl = DataDrivenDQController(model)
+        elif cfg.controller == "analytical":
+            self.leader_ctrl = KinematicController(gains["leader"])
+            self.follower_ctrl = KinematicController(gains["follower"])
+        else:
+            raise ValueError("Unknown controller mode")
         self.backend = backend or create_simulator(cfg.simulator, cfg)
         self.ctrl_timestep = cfg.control_timestep()
 
@@ -76,7 +86,13 @@ class LeaderFollowerSimulation:
             "follower_pos", "follower_pos_d", "follower_rpy", "follower_rpy_d",
             "leader_pos_measured", "follower_pos_measured",
             "leader_pos_estimated", "follower_pos_estimated",
+            "leader_velocity", "follower_velocity", "leader_angular_velocity", "follower_angular_velocity",
+            "leader_dual_quaternion", "follower_dual_quaternion",
         )}
+        if cfg.simulator == "ardupilot":
+            log.update(leader_input=[], follower_input=[])
+        if cfg.controller == "data_driven":
+            log.update(leader_prediction_error=[], follower_prediction_error=[])
 
         try:
             step = 0
@@ -86,9 +102,15 @@ class LeaderFollowerSimulation:
                 t = step * self.ctrl_timestep if clock is None else clock
                 if (clock is None and step >= num_steps) or t >= cfg.duration_sec:
                     break
+                states = self.backend.get_states()
+                # Sample the reference clock after refreshing the measured state.
+                clock = self.backend.elapsed_time
+                if clock is not None:
+                    t = clock
+                    if t >= cfg.duration_sec:
+                        break
                 dt = self.ctrl_timestep if previous_t is None else max(t - previous_t, 1e-6)
                 previous_t = t
-                states = self.backend.get_states()
                 truth = states
                 if cfg.trails:
                     self.backend.draw_trails([state.position for state in truth])
@@ -106,7 +128,9 @@ class LeaderFollowerSimulation:
                 Qd_leader = self.leader_traj.desired_pose(t)
                 omega_d_L, v_d_L = self.leader_traj.desired_twist(t)
                 omega_cmd_L, v_cmd_L = self.leader_ctrl.compute(
-                    Q_leader, Qd_leader, omega_d_L, v_d_L, dt
+                    Q_leader, Qd_leader, omega_d_L, v_d_L, dt,
+                    **({"velocity": leader_state.velocity, "angular_velocity": leader_state.angular_velocity}
+                       if cfg.controller == "data_driven" else {})
                 )
                 target_pos_L, target_rpy_L = self._target_from_twist(
                     Q_leader, omega_cmd_L, v_cmd_L
@@ -129,7 +153,9 @@ class LeaderFollowerSimulation:
                     reference_heading_rate=reference_heading_rate,
                 )
                 omega_cmd_F, v_cmd_F = self.follower_ctrl.compute(
-                    Q_follower, Qd_follower, omega_d_F, v_d_F, dt
+                    Q_follower, Qd_follower, omega_d_F, v_d_F, dt,
+                    **({"velocity": follower_state.velocity, "angular_velocity": follower_state.angular_velocity}
+                       if cfg.controller == "data_driven" else {})
                 )
                 target_pos_F, target_rpy_F = self._target_from_twist(
                     Q_follower, omega_cmd_F, v_cmd_F
@@ -139,6 +165,7 @@ class LeaderFollowerSimulation:
                     VehicleCommand(target_pos_L, target_rpy_L, v_cmd_L, omega_cmd_L),
                     VehicleCommand(target_pos_F, target_rpy_F, v_cmd_F, omega_cmd_F),
                 ])
+                applied = getattr(self.backend, "last_applied_commands", None)
                 self.backend.step()
                 step += 1
 
@@ -154,6 +181,15 @@ class LeaderFollowerSimulation:
                 for i, name in enumerate(("leader", "follower")):
                     log[name + "_pos_measured"].append(measurements[i].copy())
                     log[name + "_pos_estimated"].append(states[i].position.copy())
+                    log[name + "_velocity"].append(truth[i].velocity.copy())
+                    log[name + "_angular_velocity"].append(truth[i].angular_velocity.copy())
+                    pose = truth[i].as_pose()
+                    log[name + "_dual_quaternion"].append(np.r_[pose.P.as_array(), pose.D.as_array()])
+                    if cfg.simulator == "ardupilot":
+                        log[name + "_input"].append(applied[i].copy() if applied is not None else np.full(4, np.nan))
+                    controller = self.leader_ctrl if i == 0 else self.follower_ctrl
+                    if cfg.controller == "data_driven":
+                        log[name + "_prediction_error"].append(controller.last_prediction_error)
         finally:
             self.backend.close()
 

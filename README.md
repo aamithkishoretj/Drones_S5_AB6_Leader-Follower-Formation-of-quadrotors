@@ -8,8 +8,9 @@
 After one-time installation, `bash scripts/run_ardupilot.sh 60` launches two
 ArduCopter SITLs, takes off, shows 60 seconds of leader–follower flight in
 Gazebo with red/blue trails, then lands and stops. VS Code tasks also prompt
-for duration. This backend reuses the formation controller and lets ArduPilot
-handle low-level flight control.
+for duration. ArduPilot demos now use a learned dynamics model inside a
+dual-quaternion predictive controller; ArduPilot handles low-level flight
+control. See [data generation, training and validation](docs/data_driven.md).
 
 **Course-concept extensions:** See [the runnable guide](docs/course_concepts.md)
 for B-spline and LERP/SLERP references, optional position Kalman filtering,
