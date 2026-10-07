@@ -40,6 +40,18 @@ class LeaderFollowerSimulation:
         self.follower_ctrl = KinematicController(gains["follower"])
         self.backend = backend or create_simulator(cfg.simulator, cfg)
         self.ctrl_timestep = cfg.control_timestep()
+        if cfg.controller == "learned":
+            from dq_control.learned_control import LearnedResponse, LearnedDQController
+            model = LearnedResponse.load(cfg.learned_model or f"models/{cfg.simulator}_response.npz",
+                                         cfg.simulator, self.ctrl_timestep)
+            self.leader_ctrl = LearnedDQController(model, self.ctrl_timestep)
+            self.follower_ctrl = LearnedDQController(model, self.ctrl_timestep)
+        elif cfg.controller != "analytic":
+            raise ValueError("controller must be analytic or learned")
+        if cfg.excitation < 0 or not np.isfinite(cfg.excitation):
+            raise ValueError("excitation must be finite and nonnegative")
+        if cfg.controller == "learned" and cfg.excitation:
+            raise ValueError("Training excitation is only supported with the analytic collection controller")
 
         init_leader = self.leader_traj.position(0.0)
         init_leader_att = self.leader_traj.attitude(0.0)
@@ -66,6 +78,7 @@ class LeaderFollowerSimulation:
         cfg = self.cfg
         num_steps = int(cfg.duration_sec * cfg.ctrl_freq)
         rng = np.random.default_rng(cfg.seed)
+        excitation = np.zeros((2, 6))
         filters = [PositionKalmanFilter(self.ctrl_timestep, cfg.kalman_measurement_std,
                                        cfg.kalman_acceleration_std) for _ in range(2)] if cfg.kalman else None
         self.backend.reset(self.initial_xyzs, self.initial_rpys)
@@ -76,6 +89,7 @@ class LeaderFollowerSimulation:
             "follower_pos", "follower_pos_d", "follower_rpy", "follower_rpy_d",
             "leader_pos_measured", "follower_pos_measured",
             "leader_pos_estimated", "follower_pos_estimated",
+            "response_x", "response_u", "response_y",
         )}
 
         try:
@@ -99,10 +113,8 @@ class LeaderFollowerSimulation:
                 Qd_leader = self.leader_traj.desired_pose(t)
                 omega_d_L, v_d_L = self.leader_traj.desired_twist(t)
                 omega_cmd_L, v_cmd_L = self.leader_ctrl.compute(
-                    Q_leader, Qd_leader, omega_d_L, v_d_L, self.ctrl_timestep
-                )
-                target_pos_L, target_rpy_L = self._target_from_twist(
-                    Q_leader, omega_cmd_L, v_cmd_L
+                    Q_leader, Qd_leader, omega_d_L, v_d_L, self.ctrl_timestep,
+                    **({"measured_state": leader_state} if cfg.controller == "learned" else {})
                 )
 
                 reference_heading = None
@@ -122,17 +134,31 @@ class LeaderFollowerSimulation:
                     reference_heading_rate=reference_heading_rate,
                 )
                 omega_cmd_F, v_cmd_F = self.follower_ctrl.compute(
-                    Q_follower, Qd_follower, omega_d_F, v_d_F, self.ctrl_timestep
-                )
-                target_pos_F, target_rpy_F = self._target_from_twist(
-                    Q_follower, omega_cmd_F, v_cmd_F
+                    Q_follower, Qd_follower, omega_d_F, v_d_F, self.ctrl_timestep,
+                    **({"measured_state": follower_state} if cfg.controller == "learned" else {})
                 )
 
-                self.backend.apply_commands([
-                    VehicleCommand(target_pos_L, target_rpy_L, v_cmd_L, omega_cmd_L),
-                    VehicleCommand(target_pos_F, target_rpy_F, v_cmd_F, omega_cmd_F),
-                ])
-                self.backend.step()
+                from dq_control.learned_control import response_state, response_input
+                raw_commands = [(omega_cmd_L, v_cmd_L), (omega_cmd_F, v_cmd_F)]
+                if cfg.excitation and step % 12 == 0:
+                    excitation = rng.uniform(-1, 1, (2, 6))*cfg.excitation
+                commands = []
+                training_inputs = []
+                for i, (omega, velocity) in enumerate(raw_commands):
+                    if cfg.excitation:
+                        velocity = velocity + truth[i].attitude.rotation_matrix() @ excitation[i, :3]
+                        omega = omega + excitation[i, 3:]*.5
+                        velocity = np.clip(velocity, -1.5, 1.5)
+                        omega = np.clip(omega, -1.5, 1.5)
+                    pos, rpy = self._target_from_twist(states[i].as_pose(), omega, velocity)
+                    commands.append(VehicleCommand(pos, rpy, velocity, omega))
+                    training_inputs.append(response_input(truth[i], omega, velocity))
+                training_states = [response_state(s) for s in truth]
+                self.backend.apply_commands(commands)
+                next_states = self.backend.step()
+                log["response_x"].append(training_states)
+                log["response_u"].append(training_inputs)
+                log["response_y"].append([response_state(s) for s in next_states])
 
                 log["t"].append(t)
                 log["leader_pos"].append(truth[0].position.copy())

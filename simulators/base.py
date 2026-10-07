@@ -84,6 +84,9 @@ class SimConfig:
     kalman_measurement_std: float = 0.03
     kalman_acceleration_std: float = 0.5
     seed: int = 0
+    controller: str = "analytic"
+    learned_model: str | None = None
+    excitation: float = 0.0
 
     def control_timestep(self) -> float:
         if self.ctrl_freq <= 0:

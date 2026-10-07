@@ -27,7 +27,7 @@ from dq_control import Quaternion
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument(
-        "--experiment", choices=list(EXPERIMENTS.keys()), required=True,
+        "--experiment", choices=list(EXPERIMENTS.keys()), default="real_eig",
         help="Which gain set from Section V to run.",
     )
     p.add_argument(
@@ -41,6 +41,9 @@ def parse_args():
              "cos(k*theta) ripple in z).",
     )
     p.add_argument("--duration", type=float, default=30.0, help="Simulation duration, s.")
+    p.add_argument("--controller", choices=["learned", "analytic"], default="learned",
+                   help="learned = identified-dynamics DQ predictive control (default); analytic = original baseline")
+    p.add_argument("--model", help="Backend-specific learned response .npz; defaults to models/<simulator>_response.npz")
     p.add_argument(
         "--physics_freq", "--pyb_freq", dest="pyb_freq", type=int, default=240,
         help="Physics steps / s. Used by PyBullet; accepted for compatibility with the original CLI.",
@@ -191,6 +194,8 @@ def main():
     gains = get_gains(args.experiment)
     cfg = SimConfig(
         simulator=args.simulator,
+        controller=args.controller,
+        learned_model=args.model or os.path.join(_ROOT, "models", f"{args.simulator}_response.npz"),
         gazebo_render_engine=args.gazebo_render_engine,
         duration_sec=args.duration,
         pyb_freq=args.pyb_freq,
@@ -213,20 +218,23 @@ def main():
     leader_traj = build_leader_trajectory(args)
 
     print(
-        f"[run_experiment] simulator={args.simulator}  experiment={args.experiment}  "
+        f"[run_experiment] simulator={args.simulator}  controller={args.controller}  experiment={args.experiment}  "
         f"trajectory={args.trajectory}  follower_offset_mode={follower_offset_mode}  "
         f"duration={args.duration}s  gui={args.gui}"
     )
     sim = LeaderFollowerSimulation(gains=gains, cfg=cfg, leader_traj=leader_traj)
     log = sim.run()
     log["run_options_json"] = np.asarray(json.dumps(vars(args), sort_keys=True))
+    if args.controller == "learned":
+        from dq_control.learned_control import file_digest
+        log["model_sha256"] = np.asarray(file_digest(cfg.learned_model))
     if args.trajectory == "bspline":
         log["trajectory_control_points"] = leader_traj.points.copy()
         log["trajectory_knots"] = leader_traj.knots.copy()
     elif args.trajectory == "interpolated":
         log["trajectory_endpoints"] = np.array([leader_traj.start, leader_traj.end])
         log["trajectory_attitudes_xyzw"] = np.array([leader_traj.q0.as_array(), leader_traj.q1.as_array()])
-    run_name = f"{args.simulator}_{args.experiment}_{args.trajectory}"
+    run_name = f"{args.simulator}_{args.controller}_{args.experiment}_{args.trajectory}"
     save_run(log, experiment_name=run_name, output_folder=args.output)
 
 
