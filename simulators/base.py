@@ -15,6 +15,10 @@ import numpy as np
 from dq_control import Quaternion
 
 
+class SimulationStopped(Exception):
+    """Raised when a user closes a simulator's native viewer."""
+
+
 @dataclass
 class DroneState:
     """Normalized simulator-independent vehicle state."""

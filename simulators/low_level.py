@@ -23,8 +23,8 @@ class GazeboControllerConfig:
     motor_constant: float = 8.54858e-6  # N/(rad/s)^2
     max_motor_rpm: float = 10000.0
 
-    pos_kp: np.ndarray = field(default_factory=lambda: np.array([1.8, 1.8, 4.0], dtype=float))
-    vel_kd: np.ndarray = field(default_factory=lambda: np.array([1.2, 1.2, 2.0], dtype=float))
+    pos_kp: np.ndarray = field(default_factory=lambda: np.array([4.0, 4.0, 6.0], dtype=float))
+    vel_kd: np.ndarray = field(default_factory=lambda: np.array([2.4, 2.4, 3.5], dtype=float))
 
     att_kp: np.ndarray = field(default_factory=lambda: np.array([4.5, 4.5, 2.5], dtype=float))
     att_kd: np.ndarray = field(default_factory=lambda: np.array([0.7, 0.7, 0.7], dtype=float))
@@ -63,9 +63,20 @@ class GazeboQuadrotorController:
         yaw = command.target_rpy[2]
         ax, ay = accel[0], accel[1]
 
-        # Small-angle mapping from desired world acceleration to desired roll/pitch.
-        roll_des = (ax * np.sin(yaw) - ay * np.cos(yaw)) / self.cfg.gravity
-        pitch_des = (ax * np.cos(yaw) + ay * np.sin(yaw)) / self.cfg.gravity
+        # Point the body thrust axis along the requested world force vector.
+        # Using gravity as the denominator assumes zero vertical acceleration
+        # and loses altitude whenever the vehicle tilts to follow a path.
+        # `accel[2]` already includes gravity compensation above.
+        force_z = accel[2]
+        force_norm = float(np.linalg.norm([ax, ay, force_z]))
+        if force_norm < 1e-9:
+            roll_des = pitch_des = 0.0
+        else:
+            roll_sine = (ax * np.sin(yaw) - ay * np.cos(yaw)) / force_norm
+            roll_des = np.arcsin(np.clip(roll_sine, -1.0, 1.0))
+            pitch_des = np.arctan2(
+                ax * np.cos(yaw) + ay * np.sin(yaw), force_z
+            )
         roll_des = float(np.clip(roll_des, -self.cfg.max_tilt_rad, self.cfg.max_tilt_rad))
         pitch_des = float(np.clip(pitch_des, -self.cfg.max_tilt_rad, self.cfg.max_tilt_rad))
 
@@ -80,7 +91,9 @@ class GazeboQuadrotorController:
         att_cmd = self.cfg.att_kp * attitude_error + self.cfg.att_kd * rate_error
 
         # Collective thrust.
-        thrust = self.cfg.mass_kg * accel[2]
+        thrust = self.cfg.mass_kg * force_z / max(
+            np.cos(roll_des) * np.cos(pitch_des), 0.2
+        )
         thrust = float(np.clip(thrust, 0.0, 4.0 * self.cfg.motor_constant * self.max_motor_rad_s**2))
         base_w2 = thrust / (4.0 * self.cfg.motor_constant)
 

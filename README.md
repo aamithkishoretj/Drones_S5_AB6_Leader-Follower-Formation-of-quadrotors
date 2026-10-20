@@ -10,6 +10,18 @@ backend. A predictive optimizer uses that model and dual-quaternion pose error
 to choose commands during every flight step. The original controller is retained
 as `--controller analytic` for data collection and comparisons.
 See [training, results, limitations, and launch commands](docs/data_driven.md).
+
+**Desktop simulation UI:** Launch the interactive control panel with
+`python scripts/run_ui.py`. Select PyBullet, Gazebo, MuJoCo, or the kinematic
+reference backend, then start and stop the simulation from the panel. PyBullet
+and MuJoCo use their native viewers in the UI's simulation area. Gazebo opens
+its native WSLg window, while the kinematic reference has no native simulator
+application. Leader speed, follower gap, route radius, and flight altitude can
+be adjusted while the simulation runs. The UI uses the analytic controller by
+default; select the learned controller only after training that backend's
+response model. On Windows, Gazebo and ROS run inside WSL (Ubuntu 24.04 by
+default); see [Gazebo setup](gazebo/README.md) for the required packages and
+WSL settings.
 Train first with `python scripts/train_data_driven.py --simulator pybullet`,
 then run `python scripts/run_experiment.py --simulator pybullet --gui`.
 

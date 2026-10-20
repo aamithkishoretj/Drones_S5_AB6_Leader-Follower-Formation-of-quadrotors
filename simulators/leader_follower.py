@@ -74,7 +74,7 @@ class LeaderFollowerSimulation:
         Q_target = integrate_pose(Q_current, omega_cmd, v_cmd, self.ctrl_timestep)
         return Q_target.position(), Q_target.attitude().to_rpy()
 
-    def run(self):
+    def run(self, stop_event=None, step_callback=None, live_parameters=None):
         cfg = self.cfg
         num_steps = int(cfg.duration_sec * cfg.ctrl_freq)
         rng = np.random.default_rng(cfg.seed)
@@ -93,7 +93,60 @@ class LeaderFollowerSimulation:
         )}
 
         try:
+            params = getattr(self.leader_traj, "p", None)
+            speed_attr = "w_d" if params is not None and hasattr(params, "w_d") else "w"
+            base_speed = float(getattr(params, speed_attr, 1.0)) if params is not None else 1.0
+            if not np.isfinite(base_speed) or abs(base_speed) < 1e-8:
+                base_speed = 1.0
+            phase_time = 0.0
+            active = {
+                "leader_speed": abs(base_speed),
+                "route_radius": float(getattr(params, "r_x", getattr(params, "r", 0.85))),
+                "altitude": float(getattr(params, "z0", 1.0)),
+                "follow_distance": float(getattr(self.follower_traj, "distance", getattr(self.follower_traj, "x_offset", cfg.follow_distance))),
+            }
+            previous_reference_position = None
+            previous_reference_yaw = None
             for step in range(num_steps):
+                if stop_event is not None and stop_event.is_set():
+                    break
+                if live_parameters is not None:
+                    # UI-owned values are read once per control tick so edits
+                    # take effect without restarting the simulator.
+                    with live_parameters["lock"]:
+                        values = dict(live_parameters["values"])
+                    # Slew live values to avoid discontinuous references that can
+                    # destabilize physics backends. Speed changes alter phase rate,
+                    # not the trajectory's absolute phase.
+                    targets = {
+                        "leader_speed": (0.03, 0.8, 0.35),
+                        "route_radius": (0.2, 2.0, 0.5),
+                        "altitude": (0.3, 3.0, 0.4),
+                        "follow_distance": (0.25, 2.5, 0.5),
+                    }
+                    for key, (low, high, slew) in targets.items():
+                        target = values.get(key)
+                        if target is None:
+                            continue
+                        try:
+                            target = float(target)
+                        except (TypeError, ValueError):
+                            continue
+                        if np.isfinite(target):
+                            target = float(np.clip(target, low, high))
+                            delta = target - active[key]
+                            active[key] += float(np.clip(delta, -slew*self.ctrl_timestep, slew*self.ctrl_timestep))
+                    if params is not None:
+                        if hasattr(params, "r_x"):
+                            params.r_x = active["route_radius"]
+                        elif hasattr(params, "r"):
+                            params.r = active["route_radius"]
+                        if hasattr(params, "z0"):
+                            params.z0 = active["altitude"]
+                    if hasattr(self.follower_traj, "distance"):
+                        self.follower_traj.distance = active["follow_distance"]
+                    elif hasattr(self.follower_traj, "x_offset"):
+                        self.follower_traj.x_offset = active["follow_distance"]
                 t = step * self.ctrl_timestep
                 states = self.backend.get_states()
                 truth = states
@@ -110,8 +163,19 @@ class LeaderFollowerSimulation:
                 Q_leader = leader_state.as_pose()
                 Q_follower = follower_state.as_pose()
 
-                Qd_leader = self.leader_traj.desired_pose(t)
-                omega_d_L, v_d_L = self.leader_traj.desired_twist(t)
+                Qd_leader = self.leader_traj.desired_pose(phase_time)
+                reference_position = Qd_leader.position()
+                reference_yaw = float(Qd_leader.attitude().to_rpy()[2])
+                if previous_reference_position is None:
+                    omega_d_L, v_d_L = self.leader_traj.desired_twist(phase_time)
+                    rate_scale = active["leader_speed"] / abs(base_speed)
+                    omega_d_L, v_d_L = omega_d_L * rate_scale, v_d_L * rate_scale
+                else:
+                    v_d_L = (reference_position - previous_reference_position) / self.ctrl_timestep
+                    yaw_delta = (reference_yaw - previous_reference_yaw + np.pi) % (2*np.pi) - np.pi
+                    omega_d_L = np.array([0.0, 0.0, yaw_delta / self.ctrl_timestep])
+                previous_reference_position = reference_position
+                previous_reference_yaw = reference_yaw
                 omega_cmd_L, v_cmd_L = self.leader_ctrl.compute(
                     Q_leader, Qd_leader, omega_d_L, v_d_L, self.ctrl_timestep,
                     **({"measured_state": leader_state} if cfg.controller == "learned" else {})
@@ -120,8 +184,13 @@ class LeaderFollowerSimulation:
                 reference_heading = None
                 reference_heading_rate = None
                 if cfg.follower_offset_mode == "body":
-                    reference_heading = float(self.leader_traj.yaw(t))
-                    reference_heading_rate = float(self.leader_traj.angular_velocity(t)[2])
+                    reference_heading = float(self.leader_traj.yaw(phase_time))
+                    reference_heading_rate = float(self.leader_traj.angular_velocity(phase_time)[2]) * active["leader_speed"] / abs(base_speed)
+                # Advance the virtual trajectory clock after evaluating the
+                # current reference. Advancing it above Qd evaluation made the
+                # controller chase a one-tick-ahead pose, then integrate that
+                # command another tick forward.
+                phase_time += self.ctrl_timestep * (active["leader_speed"] / abs(base_speed))
 
                 Qd_follower, omega_d_F, v_d_F = self.follower_traj.update(
                     t,
@@ -152,26 +221,29 @@ class LeaderFollowerSimulation:
                         omega = np.clip(omega, -1.5, 1.5)
                     pos, rpy = self._target_from_twist(states[i].as_pose(), omega, velocity)
                     commands.append(VehicleCommand(pos, rpy, velocity, omega))
-                    training_inputs.append(response_input(truth[i], omega, velocity))
-                training_states = [response_state(s) for s in truth]
+                    if step_callback is None:
+                        training_inputs.append(response_input(truth[i], omega, velocity))
+                training_states = [response_state(s) for s in truth] if step_callback is None else None
                 self.backend.apply_commands(commands)
                 next_states = self.backend.step()
-                log["response_x"].append(training_states)
-                log["response_u"].append(training_inputs)
-                log["response_y"].append([response_state(s) for s in next_states])
-
-                log["t"].append(t)
-                log["leader_pos"].append(truth[0].position.copy())
-                log["leader_pos_d"].append(Qd_leader.position())
-                log["leader_rpy"].append(leader_state.attitude.to_rpy())
-                log["leader_rpy_d"].append(Qd_leader.attitude().to_rpy())
-                log["follower_pos"].append(truth[1].position.copy())
-                log["follower_pos_d"].append(Qd_follower.position())
-                log["follower_rpy"].append(follower_state.attitude.to_rpy())
-                log["follower_rpy_d"].append(Qd_follower.attitude().to_rpy())
-                for i, name in enumerate(("leader", "follower")):
-                    log[name + "_pos_measured"].append(measurements[i].copy())
-                    log[name + "_pos_estimated"].append(states[i].position.copy())
+                if step_callback is not None:
+                    step_callback(t, next_states)
+                if step_callback is None:
+                    log["response_x"].append(training_states)
+                    log["response_u"].append(training_inputs)
+                    log["response_y"].append([response_state(s) for s in next_states])
+                    log["t"].append(t)
+                    log["leader_pos"].append(truth[0].position.copy())
+                    log["leader_pos_d"].append(Qd_leader.position())
+                    log["leader_rpy"].append(leader_state.attitude.to_rpy())
+                    log["leader_rpy_d"].append(Qd_leader.attitude().to_rpy())
+                    log["follower_pos"].append(truth[1].position.copy())
+                    log["follower_pos_d"].append(Qd_follower.position())
+                    log["follower_rpy"].append(follower_state.attitude.to_rpy())
+                    log["follower_rpy_d"].append(Qd_follower.attitude().to_rpy())
+                    for i, name in enumerate(("leader", "follower")):
+                        log[name + "_pos_measured"].append(measurements[i].copy())
+                        log[name + "_pos_estimated"].append(states[i].position.copy())
         finally:
             self.backend.close()
 
