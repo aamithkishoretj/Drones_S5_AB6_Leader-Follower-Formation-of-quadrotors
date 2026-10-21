@@ -1,0 +1,151 @@
+{
+  "model": "D:\\drones\\Dual-Quaternion-Based-Control-for-a-Leader-Follower-Formation-of-Two-Quadrotors\\models\\mujoco_response.npz",
+  "model_sha256": "c16878a802404c93046ff0529a958f1d7d450877ec6c6a50f8690ff35bc28ef6",
+  "identification": {
+    "backend": "mujoco",
+    "dt": 0.020833333333333332,
+    "provenance": [
+      {
+        "path": "data\\yaw_tracking\\mujoco\\train_00.npz",
+        "sha256": "2c3cd7a615605d8f596a64d5cd1d3dacdc6ab2022e04fca7c044ffef67c817a5",
+        "split": "train"
+      },
+      {
+        "path": "data\\yaw_tracking\\mujoco\\train_01.npz",
+        "sha256": "d0c42a3b8d226e642f00937fa621cee30c404b77d68de6bf513404c8e58691f4",
+        "split": "train"
+      },
+      {
+        "path": "data\\yaw_tracking\\mujoco\\train_02.npz",
+        "sha256": "b62432b5bb9b5bb5aeda3fdd741912aed7120cf173f8c0190b6ca168494bcbd7",
+        "split": "train"
+      },
+      {
+        "path": "data\\yaw_tracking\\mujoco\\train_03.npz",
+        "sha256": "02092086d351546282e65e94b3766221e0d560020edf4aac5108626124094bed",
+        "split": "train"
+      },
+      {
+        "path": "data\\yaw_tracking\\mujoco\\validation_04.npz",
+        "sha256": "aff71288d67beea6f6739bdb573ada3737b295acdbb92f402b516534fbae25b1",
+        "split": "validation"
+      }
+    ],
+    "training_episodes": 4,
+    "schema": "body_twist_gravity_v1",
+    "samples": 7680,
+    "ridge": 0.001,
+    "feature_std": [
+      0.08065786530236578,
+      0.07023832040254002,
+      0.0815151230857989,
+      0.04484027496764486,
+      0.025082289871547002,
+      0.35786970136438456,
+      0.01264549172445647,
+      0.045138467589187325,
+      0.130486189187707,
+      0.12500066577422336,
+      0.11950711289987007,
+      0.060692702175484795,
+      0.05437708015972907,
+      0.37526662749831596
+    ],
+    "feature_rank": 14,
+    "validation_rmse_per_state": [
+      0.001023822840961219,
+      0.0010757971085807074,
+      2.4626503065571938e-05,
+      0.0006381629800138984,
+      0.00015181347172644544,
+      0.0008816272112592599,
+      4.56322129950499e-06,
+      7.741029644247729e-06
+    ],
+    "persistence_rmse_per_state": [
+      0.007162963580459261,
+      0.007938081169457946,
+      0.009360579961546963,
+      3.3973451610962988e-18,
+      1.4599459911536544e-18,
+      0.009664157136471471,
+      2.5147847718101826e-20,
+      2.3624398667995612e-20
+    ]
+  },
+  "evaluation": {
+    "unseen_lemniscate": {
+      "analytic": {
+        "leader": {
+          "position_rmse_m": 0.011081206672473866,
+          "altitude_min_m": 1.1,
+          "altitude_max_m": 1.1,
+          "attitude_rmse_rad": 0.17435208024757304
+        },
+        "follower": {
+          "position_rmse_m": 0.01962590605784939,
+          "altitude_min_m": 1.1,
+          "altitude_max_m": 1.1,
+          "attitude_rmse_rad": 0.2634803259703745
+        }
+      },
+      "learned": {
+        "leader": {
+          "position_rmse_m": 0.003807640986138244,
+          "altitude_min_m": 1.0997467659453217,
+          "altitude_max_m": 1.1000279709820804,
+          "attitude_rmse_rad": 0.137368014086053
+        },
+        "follower": {
+          "position_rmse_m": 0.005360406356557873,
+          "altitude_min_m": 1.099726628202064,
+          "altitude_max_m": 1.1005709671615485,
+          "attitude_rmse_rad": 0.18929305619176257
+        },
+        "optimization": {
+          "leader_solves": 960,
+          "follower_solves": 960,
+          "leader_saturated_steps": 23,
+          "follower_saturated_steps": 86
+        }
+      }
+    },
+    "unseen_bspline": {
+      "analytic": {
+        "leader": {
+          "position_rmse_m": 0.008353155188689206,
+          "altitude_min_m": 1.0,
+          "altitude_max_m": 1.3357772374102967,
+          "attitude_rmse_rad": 0.033485923138028256
+        },
+        "follower": {
+          "position_rmse_m": 0.00929701174292439,
+          "altitude_min_m": 0.8868629127949296,
+          "altitude_max_m": 1.3381735442533738,
+          "attitude_rmse_rad": 0.038921949985630575
+        }
+      },
+      "learned": {
+        "leader": {
+          "position_rmse_m": 0.002324443388038234,
+          "altitude_min_m": 0.9999941921296324,
+          "altitude_max_m": 1.333700328815602,
+          "attitude_rmse_rad": 0.00793658991548639
+        },
+        "follower": {
+          "position_rmse_m": 0.00226735152089284,
+          "altitude_min_m": 0.8868606361806833,
+          "altitude_max_m": 1.3347572049576766,
+          "attitude_rmse_rad": 0.00895720095523122
+        },
+        "optimization": {
+          "leader_solves": 960,
+          "follower_solves": 960,
+          "leader_saturated_steps": 0,
+          "follower_saturated_steps": 0
+        }
+      }
+    }
+  },
+  "scope": "Local simulator-trained closed-loop response, not real-flight validation"
+}

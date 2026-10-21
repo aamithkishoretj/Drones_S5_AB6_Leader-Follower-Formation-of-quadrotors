@@ -4,8 +4,10 @@ The default formation is now `path`. The leader follows its chosen trajectory.
 The follower targets the leader's measured past positions in chronological
 order, a configurable arc length behind. It follows the same turns rather
 than flying a translated curve or a heading-offset curve. Recorded attitude
-is interpolated with SLERP; the same dual-quaternion controller tracks the
-resulting pose. No dual-quaternion algebra or core control equations changed.
+is interpolated with SLERP. The default CLI controller now tracks this pose
+using learned dynamics and dual-quaternion error; see [data-driven control](data_driven.md).
+Dual-quaternion algebra is preserved. The original control law remains available
+with `--controller analytic`. Train the backend model before running learned control.
 
 In the Ubuntu terminal, with ROS and the project environment active:
 

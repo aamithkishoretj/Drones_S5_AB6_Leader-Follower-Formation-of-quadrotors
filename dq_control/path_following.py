@@ -6,10 +6,11 @@ from .course_trajectories import slerp
 
 
 class PathFollowerTrajectory:
-    def __init__(self, distance, start, leader_start, attitude):
+    def __init__(self, distance, start, leader_start, attitude, history_distance=None):
         if not np.isfinite(distance) or distance <= 0:
             raise ValueError("follow_distance must be positive")
         self.distance = distance
+        self.history_distance = max(distance, history_distance or distance)
         self.history = deque([(0., np.array(start, float), attitude),
                               (distance, np.array(leader_start, float), attitude)])
         self.length = distance
@@ -23,9 +24,14 @@ class PathFollowerTrajectory:
             self.length += increment
             self.history.append((self.length, position.copy(), leader_attitude))
         target_length = max(0., self.length-self.distance)
-        while len(self.history) > 2 and self.history[1][0] <= target_length:
+        keep_from = max(0., self.length-max(self.history_distance, self.distance))
+        while len(self.history) > 2 and self.history[1][0] <= keep_from:
             self.history.popleft()
         a, b = self.history[0], self.history[1]
+        for left, right in zip(self.history, list(self.history)[1:]):
+            a, b = left, right
+            if b[0] >= target_length:
+                break
         u = np.clip((target_length-a[0])/(b[0]-a[0]), 0., 1.)
         desired = (1-u)*a[1] + u*b[1]
         attitude = slerp(a[2], b[2], float(u))

@@ -11,6 +11,23 @@ from .base import SimConfig, VehicleCommand, DroneState
 from dq_control.estimation import PositionKalmanFilter
 from .registry import create_simulator
 
+_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+ARDUPILOT_DYNAMICS_MODEL = os.path.join(_ROOT, "models", "ardupilot_dq_dynamics.npz")
+CONTROLLER_ALIASES = {"analytical": "analytic"}
+
+
+def resolve_controller(controller: str, simulator: str) -> str:
+    """Map CLI/UI controller names to one implementation.
+
+    ``learned`` on ArduPilot selects the SITL-identified ``data_driven``
+    controller: its 4-input model matches Guided velocity/yaw-rate commands,
+    unlike the 6-input body-rate ``LearnedResponse`` models of other backends.
+    """
+    controller = CONTROLLER_ALIASES.get(controller, controller)
+    if controller == "learned" and simulator == "ardupilot":
+        return "data_driven"
+    return controller
+
 
 class LeaderFollowerSimulation:
     """Runs the same formation-control loop against any registered backend."""
@@ -36,20 +53,32 @@ class LeaderFollowerSimulation:
         if cfg.follower_offset_mode == "body" and cfg.follower_heading_source == "velocity":
             self.follower_traj.reset(initial_heading=self.leader_traj.yaw(0.0))
 
-        if cfg.controller == "data_driven":
+        self.controller = resolve_controller(cfg.controller, cfg.simulator)
+        self.ctrl_timestep = cfg.control_timestep()
+        if self.controller == "data_driven":
             from dq_control.data_driven import IdentifiedDynamics, DataDrivenDQController
-            if cfg.simulator != "ardupilot" or not cfg.dynamics_model:
+            if cfg.simulator != "ardupilot":
                 raise ValueError("Data-driven control requires ArduPilot and a trained dynamics model")
-            model = IdentifiedDynamics.load(cfg.dynamics_model)
+            model = IdentifiedDynamics.load(cfg.dynamics_model or ARDUPILOT_DYNAMICS_MODEL)
             self.leader_ctrl = DataDrivenDQController(model)
             self.follower_ctrl = DataDrivenDQController(model)
-        elif cfg.controller == "analytical":
+        elif self.controller == "learned":
+            from dq_control.learned_control import LearnedResponse, LearnedDQController
+            model = LearnedResponse.load(cfg.learned_model or f"models/{cfg.simulator}_response.npz",
+                                         cfg.simulator, self.ctrl_timestep)
+            self.leader_ctrl = LearnedDQController(model, self.ctrl_timestep)
+            self.follower_ctrl = LearnedDQController(model, self.ctrl_timestep)
+        elif self.controller == "analytic":
             self.leader_ctrl = KinematicController(gains["leader"])
             self.follower_ctrl = KinematicController(gains["follower"])
         else:
-            raise ValueError("Unknown controller mode")
+            raise ValueError("controller must be analytic, learned or data_driven")
+        if cfg.excitation < 0 or not np.isfinite(cfg.excitation):
+            raise ValueError("excitation must be finite and nonnegative")
+        if self.controller != "analytic" and cfg.excitation:
+            raise ValueError("Training excitation is only supported with the analytic collection controller")
         self.backend = backend or create_simulator(cfg.simulator, cfg)
-        self.ctrl_timestep = cfg.control_timestep()
+        self.live_applied = {}
 
         init_leader = self.leader_traj.position(0.0)
         init_leader_att = self.leader_traj.attitude(0.0)
@@ -72,13 +101,23 @@ class LeaderFollowerSimulation:
         Q_target = integrate_pose(Q_current, omega_cmd, v_cmd, self.ctrl_timestep)
         return Q_target.position(), Q_target.attitude().to_rpy()
 
-    def run(self):
+    def _controller_inputs(self, state):
+        if self.controller == "data_driven":
+            return {"velocity": state.velocity, "angular_velocity": state.angular_velocity}
+        if self.controller == "learned":
+            return {"measured_state": state}
+        return {}
+
+    def run(self, stop_event=None, step_callback=None, live_parameters=None):
         cfg = self.cfg
         num_steps = int(cfg.duration_sec * cfg.ctrl_freq)
         rng = np.random.default_rng(cfg.seed)
+        excitation = np.zeros((2, 6))
         filters = [PositionKalmanFilter(self.ctrl_timestep, cfg.kalman_measurement_std,
                                        cfg.kalman_acceleration_std) for _ in range(2)] if cfg.kalman else None
         self.backend.reset(self.initial_xyzs, self.initial_rpys)
+        if live_parameters is not None and hasattr(self.follower_traj, "history_distance"):
+            self.follower_traj.history_distance = 3.0
 
         log = {k: [] for k in (
             "t",
@@ -88,20 +127,76 @@ class LeaderFollowerSimulation:
             "leader_pos_estimated", "follower_pos_estimated",
             "leader_velocity", "follower_velocity", "leader_angular_velocity", "follower_angular_velocity",
             "leader_dual_quaternion", "follower_dual_quaternion",
+            "response_x", "response_u", "response_y",
         )}
         if cfg.simulator == "ardupilot":
             log.update(leader_input=[], follower_input=[])
-        if cfg.controller == "data_driven":
+        if self.controller == "data_driven":
             log.update(leader_prediction_error=[], follower_prediction_error=[])
 
         try:
+            params = getattr(self.leader_traj, "p", None)
+            speed_attr = "w_d" if params is not None and hasattr(params, "w_d") else "w"
+            base_speed = float(getattr(params, speed_attr, 1.0)) if params is not None else 1.0
+            if not np.isfinite(base_speed) or abs(base_speed) < 1e-8:
+                base_speed = 1.0
+            phase_time = 0.0
+            active = {
+                "leader_speed": abs(base_speed),
+                "route_radius": float(getattr(params, "r_x", getattr(params, "r", 0.85))),
+                "altitude": float(getattr(params, "z0", 1.0)),
+                "follow_distance": float(getattr(self.follower_traj, "distance", getattr(self.follower_traj, "x_offset", cfg.follow_distance))),
+            }
+            previous_reference_position = None
+            previous_reference_yaw = None
+            radius_ratio = getattr(params, "r_y", .65) / max(getattr(params, "r_x", .85), 1e-6)
             step = 0
             previous_t = None
             while True:
+                if stop_event is not None and stop_event.is_set():
+                    break
                 clock = self.backend.elapsed_time
                 t = step * self.ctrl_timestep if clock is None else clock
                 if (clock is None and step >= num_steps) or t >= cfg.duration_sec:
                     break
+                if live_parameters is not None:
+                    # UI-owned values are read once per control tick so edits
+                    # take effect without restarting the simulator.
+                    with live_parameters["lock"]:
+                        values = dict(live_parameters["values"])
+                    # Slew live values to avoid discontinuous references that can
+                    # destabilize physics backends. Speed changes alter phase rate,
+                    # not the trajectory's absolute phase.
+                    targets = {
+                        "leader_speed": (0.03, 0.8, 0.35),
+                        "route_radius": (0.2, 3.0, 0.5),
+                        "altitude": (0.3, 3.0, 0.4),
+                        "follow_distance": (0.25, 2.5, 0.5),
+                    }
+                    for key, (low, high, slew) in targets.items():
+                        target = values.get(key)
+                        if target is None:
+                            continue
+                        try:
+                            target = float(target)
+                        except (TypeError, ValueError):
+                            continue
+                        if np.isfinite(target):
+                            target = float(np.clip(target, low, high))
+                            delta = target - active[key]
+                            active[key] += float(np.clip(delta, -slew*self.ctrl_timestep, slew*self.ctrl_timestep))
+                    if params is not None:
+                        if hasattr(params, "r_x"):
+                            params.r_x = active["route_radius"]
+                            params.r_y = active["route_radius"] * radius_ratio
+                        elif hasattr(params, "r"):
+                            params.r = active["route_radius"]
+                        if hasattr(params, "z0"):
+                            params.z0 = active["altitude"]
+                    if hasattr(self.follower_traj, "distance"):
+                        self.follower_traj.distance = active["follow_distance"]
+                    elif hasattr(self.follower_traj, "x_offset"):
+                        self.follower_traj.x_offset = active["follow_distance"]
                 states = self.backend.get_states()
                 # Sample the reference clock after refreshing the measured state.
                 clock = self.backend.elapsed_time
@@ -109,7 +204,11 @@ class LeaderFollowerSimulation:
                     t = clock
                     if t >= cfg.duration_sec:
                         break
+                # Backends with their own clock (ArduPilot SITL) may tick unevenly;
+                # others advance exactly one control timestep per step.
                 dt = self.ctrl_timestep if previous_t is None else max(t - previous_t, 1e-6)
+                if previous_t is not None:
+                    phase_time += dt * (active["leader_speed"] / abs(base_speed))
                 previous_t = t
                 truth = states
                 if cfg.trails:
@@ -125,22 +224,30 @@ class LeaderFollowerSimulation:
                 Q_leader = leader_state.as_pose()
                 Q_follower = follower_state.as_pose()
 
-                Qd_leader = self.leader_traj.desired_pose(t)
-                omega_d_L, v_d_L = self.leader_traj.desired_twist(t)
+                Qd_leader = self.leader_traj.desired_pose(phase_time)
+                reference_position = Qd_leader.position()
+                reference_yaw = float(Qd_leader.attitude().to_rpy()[2])
+                if previous_reference_position is None or live_parameters is None:
+                    # Fixed route: the analytic reference twist is exact.
+                    omega_d_L, v_d_L = self.leader_traj.desired_twist(phase_time)
+                    rate_scale = active["leader_speed"] / abs(base_speed)
+                    omega_d_L, v_d_L = omega_d_L * rate_scale, v_d_L * rate_scale
+                else:
+                    # Live sliders reshape the route, so differentiate the reference.
+                    v_d_L = (reference_position - previous_reference_position) / dt
+                    yaw_delta = (reference_yaw - previous_reference_yaw + np.pi) % (2*np.pi) - np.pi
+                    omega_d_L = np.array([0.0, 0.0, yaw_delta / dt])
+                previous_reference_position = reference_position
+                previous_reference_yaw = reference_yaw
                 omega_cmd_L, v_cmd_L = self.leader_ctrl.compute(
-                    Q_leader, Qd_leader, omega_d_L, v_d_L, dt,
-                    **({"velocity": leader_state.velocity, "angular_velocity": leader_state.angular_velocity}
-                       if cfg.controller == "data_driven" else {})
-                )
-                target_pos_L, target_rpy_L = self._target_from_twist(
-                    Q_leader, omega_cmd_L, v_cmd_L
+                    Q_leader, Qd_leader, omega_d_L, v_d_L, dt, **self._controller_inputs(leader_state)
                 )
 
                 reference_heading = None
                 reference_heading_rate = None
                 if cfg.follower_offset_mode == "body":
-                    reference_heading = float(self.leader_traj.yaw(t))
-                    reference_heading_rate = float(self.leader_traj.angular_velocity(t)[2])
+                    reference_heading = float(self.leader_traj.yaw(phase_time))
+                    reference_heading_rate = float(self.leader_traj.angular_velocity(phase_time)[2]) * active["leader_speed"] / abs(base_speed)
 
                 Qd_follower, omega_d_F, v_d_F = self.follower_traj.update(
                     t,
@@ -153,43 +260,58 @@ class LeaderFollowerSimulation:
                     reference_heading_rate=reference_heading_rate,
                 )
                 omega_cmd_F, v_cmd_F = self.follower_ctrl.compute(
-                    Q_follower, Qd_follower, omega_d_F, v_d_F, dt,
-                    **({"velocity": follower_state.velocity, "angular_velocity": follower_state.angular_velocity}
-                       if cfg.controller == "data_driven" else {})
-                )
-                target_pos_F, target_rpy_F = self._target_from_twist(
-                    Q_follower, omega_cmd_F, v_cmd_F
+                    Q_follower, Qd_follower, omega_d_F, v_d_F, dt, **self._controller_inputs(follower_state)
                 )
 
-                self.backend.apply_commands([
-                    VehicleCommand(target_pos_L, target_rpy_L, v_cmd_L, omega_cmd_L),
-                    VehicleCommand(target_pos_F, target_rpy_F, v_cmd_F, omega_cmd_F),
-                ])
+                from dq_control.learned_control import response_state, response_input
+                raw_commands = [(omega_cmd_L, v_cmd_L), (omega_cmd_F, v_cmd_F)]
+                if cfg.excitation and step % 12 == 0:
+                    excitation = rng.uniform(-1, 1, (2, 6))*cfg.excitation
+                commands = []
+                training_inputs = []
+                for i, (omega, velocity) in enumerate(raw_commands):
+                    if cfg.excitation:
+                        velocity = velocity + truth[i].attitude.rotation_matrix() @ excitation[i, :3]
+                        omega = omega + excitation[i, 3:]*.5
+                        velocity = np.clip(velocity, -1.5, 1.5)
+                        omega = np.clip(omega, -1.5, 1.5)
+                    pos, rpy = self._target_from_twist(states[i].as_pose(), omega, velocity)
+                    commands.append(VehicleCommand(pos, rpy, velocity, omega))
+                    if step_callback is None:
+                        training_inputs.append(response_input(truth[i], omega, velocity))
+                training_states = [response_state(s) for s in truth] if step_callback is None else None
+                self.backend.apply_commands(commands)
                 applied = getattr(self.backend, "last_applied_commands", None)
-                self.backend.step()
+                next_states = self.backend.step()
                 step += 1
-
-                log["t"].append(t)
-                log["leader_pos"].append(truth[0].position.copy())
-                log["leader_pos_d"].append(Qd_leader.position())
-                log["leader_rpy"].append(leader_state.attitude.to_rpy())
-                log["leader_rpy_d"].append(Qd_leader.attitude().to_rpy())
-                log["follower_pos"].append(truth[1].position.copy())
-                log["follower_pos_d"].append(Qd_follower.position())
-                log["follower_rpy"].append(follower_state.attitude.to_rpy())
-                log["follower_rpy_d"].append(Qd_follower.attitude().to_rpy())
-                for i, name in enumerate(("leader", "follower")):
-                    log[name + "_pos_measured"].append(measurements[i].copy())
-                    log[name + "_pos_estimated"].append(states[i].position.copy())
-                    log[name + "_velocity"].append(truth[i].velocity.copy())
-                    log[name + "_angular_velocity"].append(truth[i].angular_velocity.copy())
-                    pose = truth[i].as_pose()
-                    log[name + "_dual_quaternion"].append(np.r_[pose.P.as_array(), pose.D.as_array()])
-                    if cfg.simulator == "ardupilot":
-                        log[name + "_input"].append(applied[i].copy() if applied is not None else np.full(4, np.nan))
-                    controller = self.leader_ctrl if i == 0 else self.follower_ctrl
-                    if cfg.controller == "data_driven":
-                        log[name + "_prediction_error"].append(controller.last_prediction_error)
+                if step_callback is not None:
+                    self.live_applied = dict(active)
+                    step_callback(t, next_states)
+                if step_callback is None:
+                    log["response_x"].append(training_states)
+                    log["response_u"].append(training_inputs)
+                    log["response_y"].append([response_state(s) for s in next_states])
+                    log["t"].append(t)
+                    log["leader_pos"].append(truth[0].position.copy())
+                    log["leader_pos_d"].append(Qd_leader.position())
+                    log["leader_rpy"].append(leader_state.attitude.to_rpy())
+                    log["leader_rpy_d"].append(Qd_leader.attitude().to_rpy())
+                    log["follower_pos"].append(truth[1].position.copy())
+                    log["follower_pos_d"].append(Qd_follower.position())
+                    log["follower_rpy"].append(follower_state.attitude.to_rpy())
+                    log["follower_rpy_d"].append(Qd_follower.attitude().to_rpy())
+                    for i, name in enumerate(("leader", "follower")):
+                        log[name + "_pos_measured"].append(measurements[i].copy())
+                        log[name + "_pos_estimated"].append(states[i].position.copy())
+                        log[name + "_velocity"].append(truth[i].velocity.copy())
+                        log[name + "_angular_velocity"].append(truth[i].angular_velocity.copy())
+                        pose = truth[i].as_pose()
+                        log[name + "_dual_quaternion"].append(np.r_[pose.P.as_array(), pose.D.as_array()])
+                        if cfg.simulator == "ardupilot":
+                            log[name + "_input"].append(applied[i].copy() if applied is not None else np.full(4, np.nan))
+                        controller = self.leader_ctrl if i == 0 else self.follower_ctrl
+                        if self.controller == "data_driven":
+                            log[name + "_prediction_error"].append(controller.last_prediction_error)
         finally:
             self.backend.close()
 

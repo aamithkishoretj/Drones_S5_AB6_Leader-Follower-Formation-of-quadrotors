@@ -20,21 +20,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+import json
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from pathlib import PureWindowsPath
 import shutil
 import signal
+import shlex
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
-import yaml
 from concurrent.futures import ThreadPoolExecutor
 from .trails import FlightTrails
 import numpy as np
 
 from dq_control import Quaternion
-from .base import DroneState, SimConfig, SimulationBackend, VehicleCommand
+from .base import DroneState, SimConfig, SimulationBackend, SimulationStopped, VehicleCommand
 from .low_level import GazeboQuadrotorController
 
 
@@ -164,9 +167,132 @@ class GazeboBackend(SimulationBackend):
         self._trail_future = None
         self._trail_last = 0.
         self._transport_env = None
+        self._wsl_worker: subprocess.Popen | None = None
+
+    def _start_wsl_worker(self, initial_xyzs: np.ndarray, initial_rpys: np.ndarray) -> None:
+        """Run Gazebo and rclpy in WSL when the desktop UI is on Windows."""
+        wsl = shutil.which("wsl.exe") or shutil.which("wsl")
+        if wsl is None:
+            raise RuntimeError(
+                "The Gazebo backend needs WSL on Windows. Install/enable WSL and "
+                "Ubuntu 24.04, then install Gazebo Harmonic and ROS 2 Jazzy there."
+            )
+        distro = os.environ.get("GAZEBO_WSL_DISTRO", "Ubuntu-24.04")
+        project_root = Path(__file__).resolve().parents[1]
+        worker_path = project_root / "simulators" / "gazebo_wsl_worker.py"
+        win_path = PureWindowsPath(str(worker_path))
+        if not win_path.drive:
+            raise RuntimeError(f"Could not resolve the Windows project path: {worker_path}")
+        mount_root = os.environ.get("GAZEBO_WSL_MOUNT_ROOT", "/mnt")
+        linux_worker = str(PurePosixPath(mount_root) / win_path.drive[0].lower() / PurePosixPath(*win_path.parts[1:]))
+        linux_root = str(PurePosixPath(linux_worker).parent.parent)
+        ros_setup = os.environ.get("GAZEBO_ROS_SETUP", "/opt/ros/jazzy/setup.bash")
+        shell = (
+            f"source {shlex.quote(ros_setup)} && "
+            f"cd {shlex.quote(linux_root)} && "
+            f"exec python3 -u {shlex.quote(linux_worker)}"
+        )
+        self._wsl_worker = subprocess.Popen(
+            [wsl, "-d", distro, "--", "bash", "--noprofile", "--norc", "-c", shell],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace", bufsize=1,
+        )
+        try:
+            self._wsl_request({
+                "op": "reset",
+                "backend": self.cfg.simulator,
+                "config": {
+                    "duration_sec": float(self.cfg.duration_sec),
+                    "pyb_freq": int(self.cfg.pyb_freq),
+                    "ctrl_freq": int(self.cfg.ctrl_freq),
+                    "gui": bool(self.cfg.gui),
+                    "follow_distance": float(self.cfg.follow_distance),
+                    "trails": bool(self.cfg.trails),
+                    "output_folder": self._wsl_output_folder(),
+                    "gazebo_render_engine": str(self.cfg.gazebo_render_engine),
+                    **({key: getattr(self.cfg, key) for key in (
+                        "ardupilot_startup_timeout", "ardupilot_land_timeout", "ardupilot_max_speed",
+                        "ardupilot_low_resource", "ardupilot_min_separation")}
+                       if self.cfg.simulator == "ardupilot" else {}),
+                },
+                "initial_xyzs": np.asarray(initial_xyzs, dtype=float).tolist(),
+                "initial_rpys": np.asarray(initial_rpys, dtype=float).tolist(),
+            }, timeout=180 if self.cfg.simulator == "ardupilot" else 90)
+        except BaseException:
+            self.close()
+            raise
+
+    def _wsl_output_folder(self) -> str:
+        output = Path(self.cfg.output_folder)
+        if not output.is_absolute():
+            return str(output)
+        win_path = PureWindowsPath(str(output))
+        if not win_path.drive:
+            raise RuntimeError(f"Could not resolve Gazebo output folder: {output}")
+        mount_root = os.environ.get("GAZEBO_WSL_MOUNT_ROOT", "/mnt")
+        return str(PurePosixPath(mount_root) / win_path.drive[0].lower() / PurePosixPath(*win_path.parts[1:]))
+
+    def _wsl_request(self, request: dict, timeout: float = 15):
+        worker = self._wsl_worker
+        if worker is None or worker.stdin is None or worker.stdout is None:
+            raise RuntimeError("Gazebo WSL worker is not running")
+        try:
+            worker.stdin.write(json.dumps(request, separators=(",", ":")) + "\n")
+            worker.stdin.flush()
+            # Commands are synchronous by design; the backend performs the
+            # simulation step on the WSL side and returns a compact state packet.
+            response_box: list[str] = []
+            error_box: list[BaseException] = []
+            def read_response():
+                try:
+                    response_box.append(worker.stdout.readline())
+                except BaseException as exc:
+                    error_box.append(exc)
+            reader = threading.Thread(target=read_response, daemon=True)
+            reader.start()
+            reader.join(timeout)
+            if reader.is_alive():
+                raise TimeoutError(f"Gazebo WSL worker did not answer within {timeout:g} seconds")
+            if error_box:
+                raise error_box[0]
+            line = response_box[0] if response_box else ""
+            if not line:
+                try:
+                    worker.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    worker.terminate()
+                    try:
+                        worker.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        worker.kill()
+                detail = ""
+                if worker.stderr is not None:
+                    try:
+                        detail = worker.stderr.read().strip()
+                    except OSError:
+                        pass
+                raise RuntimeError(
+                    "Gazebo WSL worker exited without a response. "
+                    + (detail or f"process exit code: {worker.poll()}")
+                )
+            response = json.loads(line)
+            if response.get("stopped"):
+                raise SimulationStopped(response.get("reason") or "Gazebo window closed.")
+            if not response.get("ok"):
+                raise RuntimeError(response.get("error", "Gazebo WSL worker failed"))
+            return response.get("result")
+        except BaseException:
+            self.close()
+            raise
 
     def draw_trails(self, positions):
         if not self.cfg.gui or not self.cfg.trails:
+            return
+        if self._wsl_worker is not None:
+            # Markers must be sent inside the worker's Gazebo partition.
+            if time.monotonic() - self._trail_last >= .1:
+                self._wsl_request({"op": "draw_trails", "positions": np.asarray(positions).tolist()})
+                self._trail_last = time.monotonic()
             return
         self.trails.update(positions)
         if time.monotonic()-self._trail_last < .5:
@@ -239,6 +365,9 @@ class GazeboBackend(SimulationBackend):
 
     def reset(self, initial_xyzs: np.ndarray, initial_rpys: np.ndarray) -> None:
         self.close()
+        if os.name == "nt":
+            self._start_wsl_worker(initial_xyzs, initial_rpys)
+            return
         try:
             self._reset(initial_xyzs, initial_rpys)
         except BaseException:
@@ -292,6 +421,13 @@ class GazeboBackend(SimulationBackend):
         bridge_config = Path(__file__).resolve().parents[1] / "gazebo" / "config" / "bridge.yaml"
         if not bridge_config.exists():
             raise RuntimeError(f"Bridge configuration missing: {bridge_config}")
+        try:
+            import yaml
+        except ImportError as exc:
+            raise RuntimeError(
+                "The Gazebo backend requires PyYAML. Install it with: "
+                "python -m pip install pyyaml"
+            ) from exc
         bridge_data = yaml.safe_load(bridge_config.read_text())
         for entry in bridge_data:
             entry["ros_topic_name"] = topic_prefix + entry["ros_topic_name"]
@@ -370,9 +506,13 @@ class GazeboBackend(SimulationBackend):
         return out
 
     def get_states(self) -> list[DroneState]:
+        if self._wsl_worker is not None:
+            return [self._state_from_json(row) for row in self._wsl_request({"op": "get_states"})]
         if self.runtime.sim_process is not None and self.runtime.sim_process.poll() is not None:
-            raise RuntimeError(f"Gazebo exited with code {self.runtime.sim_process.returncode}. "
-                               f"See {self.runtime.log_path}")
+            return_code = self.runtime.sim_process.returncode
+            if self.cfg.gui and return_code in (0, -signal.SIGINT, -signal.SIGTERM):
+                raise SimulationStopped("Gazebo window closed. Simulation stopped.")
+            raise RuntimeError(f"Gazebo exited with code {return_code}. See {self.runtime.log_path}")
         if self.node is not None:
             self.node.spin_once(0.0)
             if all(name in self.node.poses for name in self.model_names):
@@ -382,6 +522,13 @@ class GazeboBackend(SimulationBackend):
         return self.states
 
     def apply_commands(self, commands: list[VehicleCommand]) -> None:
+        if self._wsl_worker is not None:
+            self._wsl_request({"op": "apply_commands", "commands": [
+                {"target_pos": c.target_pos.tolist(), "target_rpy": c.target_rpy.tolist(),
+                 "target_vel": c.target_vel.tolist(), "target_rpy_rates": c.target_rpy_rates.tolist()}
+                for c in commands
+            ]})
+            return
         if self.node is None:
             raise RuntimeError("Gazebo backend has not been reset")
         states = self.get_states()
@@ -401,6 +548,8 @@ class GazeboBackend(SimulationBackend):
         self.states = new_states
 
     def step(self) -> list[DroneState]:
+        if self._wsl_worker is not None:
+            return [self._state_from_json(row) for row in self._wsl_request({"op": "step"})]
         if self.node is None:
             raise RuntimeError("Gazebo backend has not been reset")
 
@@ -415,6 +564,27 @@ class GazeboBackend(SimulationBackend):
         return self.get_states()
 
     def close(self) -> None:
+        if self._wsl_worker is not None:
+            worker, self._wsl_worker = self._wsl_worker, None
+            try:
+                if worker.poll() is None and worker.stdin is not None:
+                    worker.stdin.write('{"op":"close"}\n')
+                    worker.stdin.flush()
+                    worker.wait(timeout=self.cfg.ardupilot_land_timeout + 15
+                                if self.cfg.simulator == "ardupilot" else 10)
+            except Exception:
+                worker.terminate()
+                try:
+                    worker.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    worker.kill()
+            for stream in (worker.stdin, worker.stdout, worker.stderr):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
+            return
         if self._trail_worker is not None:
             self._trail_worker.shutdown(wait=True, cancel_futures=True)
             self._trail_worker = None
@@ -449,3 +619,13 @@ class GazeboBackend(SimulationBackend):
         if self.runtime.temp_root is not None:
             shutil.rmtree(self.runtime.temp_root, ignore_errors=True)
             self.runtime.temp_root = None
+
+    @staticmethod
+    def _state_from_json(row: dict) -> DroneState:
+        return DroneState(
+            position=np.asarray(row["position"], dtype=float),
+            attitude=Quaternion.from_array(row["attitude"]).normalized(),
+            velocity=np.asarray(row["velocity"], dtype=float),
+            angular_velocity=np.asarray(row["angular_velocity"], dtype=float),
+            motor_rpm=np.asarray(row["motor_rpm"], dtype=float),
+        )

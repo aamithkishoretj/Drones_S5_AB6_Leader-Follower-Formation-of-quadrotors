@@ -1,0 +1,30 @@
+{
+  "gazebo_learned_real_eig_lemniscate_20261006_164612.npz": {
+    "leader": {
+      "position_rmse_m": 0.02136085066934689,
+      "altitude_min_m": 0.9426777427005305,
+      "altitude_max_m": 1.013160933614275,
+      "attitude_rmse_rad": 0.1439139260394939
+    },
+    "follower": {
+      "position_rmse_m": 0.034246591046274116,
+      "altitude_min_m": 0.9279103783587889,
+      "altitude_max_m": 1.0265193943024487,
+      "attitude_rmse_rad": 0.40491729478252175
+    }
+  },
+  "pybullet_learned_real_eig_lemniscate_20261006_220252.npz": {
+    "leader": {
+      "position_rmse_m": 0.01059948952573901,
+      "altitude_min_m": 1.0,
+      "altitude_max_m": 1.0119842996554158,
+      "attitude_rmse_rad": 0.06978063758652465
+    },
+    "follower": {
+      "position_rmse_m": 0.01404149071614146,
+      "altitude_min_m": 1.0,
+      "altitude_max_m": 1.0196287822877927,
+      "attitude_rmse_rad": 0.11109292189937757
+    }
+  }
+}

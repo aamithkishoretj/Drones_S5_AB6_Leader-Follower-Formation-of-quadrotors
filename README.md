@@ -4,19 +4,42 @@
 
 # AB6: Introduction to Drones — Leader-Follower Formation of Two Quadrotors
 
+**Data-driven control is now the default command-line workflow.** Simulator
+state/action/next-state recordings train a separate response model for each
+backend. A predictive optimizer uses that model and dual-quaternion pose error
+to choose commands during every flight step. The original controller is retained
+as `--controller analytic` for data collection and comparisons.
+See [training, results, limitations, and launch commands](docs/data_driven.md).
+
+**Desktop simulation UI:** Launch the interactive control panel with
+`python scripts/run_ui.py`. The compact panel launches separate simulator
+windows; it no longer attempts to embed native windows. PyBullet, MuJoCo and
+Gazebo offer learned control with a trained response model. Kinematic mode
+uses analytic control and a separate 3D reference plot. ArduPilot SITL is also
+listed, with installation requirements described in [its guide](ardupilot/README.md).
+Leader speed, follower gap, route radius, and flight altitude can be adjusted
+while the simulation runs; applied values are displayed as they change.
+See [desktop control details](docs/ui_controls.md). On Windows, Gazebo and ROS run inside WSL (Ubuntu 24.04 by
+default); see [Gazebo setup](gazebo/README.md) for the required packages and
+WSL settings.
+Train first with `python scripts/train_data_driven.py --simulator pybullet`,
+then run `python scripts/run_experiment.py --simulator pybullet --gui`.
+
 **ArduPilot + Gazebo live demo:** see [setup and run instructions](ardupilot/README.md).
 After one-time installation, `bash scripts/run_ardupilot.sh 60` launches two
 ArduCopter SITLs, takes off, shows 60 seconds of leader–follower flight in
 Gazebo with red/blue trails, then lands and stops. VS Code tasks also prompt
-for duration. ArduPilot demos now use a learned dynamics model inside a
-dual-quaternion predictive controller; ArduPilot handles low-level flight
-control. See [data generation, training and validation](docs/data_driven.md).
+for duration. ArduPilot uses its own SITL-identified dynamics model inside a
+dual-quaternion predictive controller (`--controller data_driven`, which
+`learned` and the default `auto` select on ArduPilot); ArduPilot handles
+low-level flight control. The same controller is available from the desktop UI.
+See [ArduPilot data generation, training and validation](docs/data_driven.md#arducopter-sitl-data-driven-dual-quaternion-formation-control).
 
-**Course-concept extensions:** See [the runnable guide](docs/course_concepts.md)
+**Supporting course concepts:** See [the runnable guide](docs/course_concepts.md)
 for B-spline and LERP/SLERP references, optional position Kalman filtering,
 CVXPY path smoothing, hover stability/prediction, and Taylor/RK45 examples.
 The original dual-quaternion controller and paper gain sets are retained.
-Use `--simulator kinematic` for an ideal control-law demonstration without a
+Use `--simulator kinematic --controller analytic` for an ideal control-law demonstration without a
 physics engine; the existing physics backends remain available.
 
 **Follow the leader's actual route (new default):** the follower targets a point
@@ -26,7 +49,9 @@ Use `--follow_distance 0.8` to set the along-path gap, `--no-trails` to hide
 lines, or `--follower_offset_mode world` for the original paper formation.
 See [path-following details](docs/path_following.md).
 
-A simulation of **dual quaternion-based control for a leader-follower formation of two quadrotors**, built to reproduce and explore the ideas from:
+The mathematical walkthrough below describes the **original analytic baseline**,
+not the learned predictive controller. The project began as a simulation of
+**dual quaternion-based control for a leader-follower formation of two quadrotors**, built to reproduce and explore the ideas from:
 
 > H. N. Marciano, D. K. D. Villa, M. Sarcinelli-Filho, J. I. Giribet, *"Dual Quaternion-Based Control for a Leader-Follower Formation of Two Quadrotors,"* 2024 International Conference on Unmanned Aircraft Systems (ICUAS), Chania, Crete, Greece, June 4–7, 2024.
 

@@ -146,6 +146,28 @@ to request landing and cleanup. If landing cannot finish within
 are terminated and a warning is printed. This integration launches local
 simulation connections only.
 
+## Desktop panel (UI)
+
+`scripts/run_ui.py` lists `ardupilot`. Selecting it applies the Iris preset
+(radius 2.55 m, 1.5 m gap, 2 m altitude, 24 Hz control) and defaults to
+**learned**, which on ArduPilot is this SITL-identified data-driven
+controller. `analytic` remains selectable for comparison. Sliders change the
+running flight; Stop lands both drones before shutting down. Startup can take
+up to 120 seconds while the panel stays responsive.
+
+- **Linux:** the panel starts SITL and Gazebo directly. The panel has no path
+  fields, so if ArduCopter is not built in the sibling `ardupilot` folder, set
+  `ARDUPILOT_PATH` (and `ARDUPILOT_GAZEBO_PATH` if needed), e.g.
+  `ARDUPILOT_PATH=../ardupilot-old .venv/bin/python scripts/run_ui.py`.
+- **Windows:** commands and trails go through the WSL worker (Ubuntu 24.04 by
+  default), which needs the built ArduCopter, the plugin, Gazebo Harmonic and
+  `pymavlink` inside WSL. `ARDUPILOT_PATH` is read inside WSL. Do not run
+  `scripts/setup_ardupilot.sh` over a Windows `.venv`; it creates a Linux
+  environment, so use a separate Linux checkout for installation.
+
+Selecting Start reports missing items; it does not install or build them.
+UI runs are not saved as `results/*.npz`; use the command line to record runs.
+
 ## Results and diagnostics
 
 Tracking logs use the existing `results/*.npz` format and plotting script.

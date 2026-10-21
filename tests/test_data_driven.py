@@ -91,3 +91,33 @@ def test_fit_refuses_train_validation_overlap(tmp_path):
     path=tmp_path/'same.npz'
     with pytest.raises(ValueError,match='separate flights'):
         train([path],[path],tmp_path/'model.npz',tmp_path/'report.json')
+
+
+def test_ui_learned_choice_uses_ardupilot_model_with_live_controls():
+    # The UI passes controller="learned" plus live sliders; on ArduPilot this
+    # must load the shipped SITL-identified model, not a LearnedResponse file.
+    import threading
+    from simulators.leader_follower import ARDUPILOT_DYNAMICS_MODEL
+    cfg=SimConfig(simulator='ardupilot',controller='learned',learned_model='models/ardupilot_response.npz',
+                  ctrl_freq=24,duration_sec=.5,follow_distance=1.5,follower_offset_mode='path')
+    sim=LeaderFollowerSimulation(get_gains('real_eig'),cfg,LeaderTrajectory(),backend=KinematicBackend(cfg))
+    assert sim.controller=='data_driven' and isinstance(sim.leader_ctrl,DataDrivenDQController)
+    assert Path(ARDUPILOT_DYNAMICS_MODEL).is_file()
+    live={'lock':threading.Lock(),'values':{'follow_distance':1.6}}
+    times=[]
+    sim.run(step_callback=lambda t,states: times.append(t),live_parameters=live)
+    assert len(times)==12 and sim.leader_ctrl.calls==12
+    assert sim.live_applied['follow_distance']>1.5
+
+
+def test_analytical_name_remains_an_alias():
+    cfg=SimConfig(simulator='kinematic',controller='analytical',duration_sec=.1)
+    sim=LeaderFollowerSimulation(get_gains('real_eig'),cfg,LeaderTrajectory())
+    assert sim.controller=='analytic'
+
+
+def test_ardupilot_path_environment_variable_is_used(tmp_path,monkeypatch):
+    from simulators.ardupilot import ArduPilotBackend
+    monkeypatch.setenv('ARDUPILOT_PATH',str(tmp_path))
+    with pytest.raises(RuntimeError,match=str(tmp_path/'build/sitl/bin/arducopter')):
+        ArduPilotBackend(SimConfig(simulator='ardupilot'))._check_dependencies()

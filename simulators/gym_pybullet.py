@@ -27,6 +27,13 @@ def _load_gpd():
     if GPD_API_VERSION is not None:
         return
 
+    # gym-pybullet-drones 0.6 still calls pkgutil.get_loader, removed in
+    # Python 3.14. Preserve its old behavior for this optional renderer probe.
+    import pkgutil
+    if not hasattr(pkgutil, "get_loader"):
+        from importlib.util import find_spec
+        pkgutil.get_loader = lambda name: (find_spec(name).loader if find_spec(name) else None)
+
     try:
         from gym_pybullet_drones.utils.enums import DroneModel as _DroneModel, Physics as _Physics
         from gym_pybullet_drones.envs.CtrlAviary import CtrlAviary as _CtrlAviary

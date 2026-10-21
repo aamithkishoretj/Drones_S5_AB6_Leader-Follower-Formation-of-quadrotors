@@ -9,7 +9,7 @@ This backend uses:
     - bounded acceleration
     - strong vertical stabilization
     - stable angular damping
-    - fixed yaw reference
+    - bounded commanded yaw tracking
 
 The purpose is to provide a robust MuJoCo simulation of the same
 leader-follower lemniscate experiment without changing the controller core.
@@ -76,15 +76,9 @@ class MuJoCoBackend(SimulationBackend):
         # Attitude stabilization
         # ---------------------------------------------------------------
         #
-        # IMPORTANT:
-        # We intentionally do NOT aggressively follow cmd.target_rpy.
-        #
-        # The previous implementation allowed the yaw torque to build up
-        # and eventually caused both vehicles to spin.
-        #
-        # Instead, we keep yaw/attitude stable and use angular damping.
-        self.att_kp = np.array([0.35, 0.35, 0.0])
-        self.att_kd = np.array([0.30, 0.30, 0.20])
+        # Stabilize roll/pitch; track bounded yaw rate with wrapped yaw error.
+        self.att_kp = np.array([0.35, 0.35, 0.08])
+        self.att_kd = np.array([0.30, 0.30, 0.03])
 
         self.max_torque = np.array([0.08, 0.08, 0.04])
 
@@ -92,8 +86,6 @@ class MuJoCoBackend(SimulationBackend):
         self.hold_roll = 0.0
         self.hold_pitch = 0.0
 
-        # Yaw is held at the initial yaw of each vehicle.
-        self.hold_yaw = [0.0, 0.0]
 
     # ------------------------------------------------------------------
     # Model
@@ -172,7 +164,6 @@ class MuJoCoBackend(SimulationBackend):
 
             self.data.qvel[qvel_addr:qvel_addr + 6] = 0.0
 
-            self.hold_yaw[i] = float(rpy[2])
 
         self.data.xfrc_applied[:] = 0.0
 
@@ -192,17 +183,16 @@ class MuJoCoBackend(SimulationBackend):
             self.viewer = mujoco.viewer.launch_passive(
                 self.model,
                 self.data,
+                show_left_ui=False, show_right_ui=False,
             )
 
-            self.viewer.cam.azimuth = 135
-            self.viewer.cam.elevation = -20
-            self.viewer.cam.distance = 5.5
+            self.viewer.user_scn.flags[self.mujoco.mjtRndFlag.mjRND_SHADOW] = False
+            self.viewer.user_scn.flags[self.mujoco.mjtRndFlag.mjRND_REFLECTION] = False
+            self.viewer.cam.azimuth = 90
+            self.viewer.cam.elevation = -60
+            self.viewer.cam.distance = 6.5
 
-            self.viewer.cam.lookat[:] = [
-                1.5,
-                -0.27,
-                1.0,
-            ]
+            self.viewer.cam.lookat[:] = np.mean(initial_xyzs, axis=0)
 
             self.viewer.sync()
 
@@ -366,16 +356,8 @@ class MuJoCoBackend(SimulationBackend):
             # 3. STABLE ATTITUDE
             # ===========================================================
             #
-            # We do NOT directly use cmd.target_rpy here.
-            #
-            # This is intentional.
-            #
-            # The translational force above already moves the vehicle
-            # along the trajectory. Keeping attitude stable prevents the
-            # MuJoCo rigid body from developing the runaway yaw seen in
-            # the earlier implementation.
-            # ===========================================================
-
+            # Translation remains force controlled; only yaw follows the
+            # high-level pose/rate command, keeping roll/pitch stabilized.
             current_rpy = np.asarray(
                 state.attitude.to_rpy(),
                 dtype=float,
@@ -385,7 +367,7 @@ class MuJoCoBackend(SimulationBackend):
                 [
                     self.hold_roll,
                     self.hold_pitch,
-                    self.hold_yaw[i],
+                    cmd.target_rpy[2],
                 ]
             )
 
@@ -417,11 +399,11 @@ class MuJoCoBackend(SimulationBackend):
                 qmat @ body_angular_velocity
             )
 
-            # PD attitude stabilization.
-            torque = (
-                self.att_kp * angle_error
-                - self.att_kd * world_angular_velocity
-            )
+            # Only the yaw component is commanded. xfrc_applied torque is
+            # world-frame, so transform the body-rate feedforward first.
+            desired_world_rate = np.zeros(3)
+            desired_world_rate[2] = np.clip((qmat @ cmd.target_rpy_rates)[2], -1.5, 1.5)
+            torque = self.att_kp * angle_error + self.att_kd * (desired_world_rate-world_angular_velocity)
 
             torque = np.clip(
                 torque,

@@ -15,6 +15,10 @@ import numpy as np
 from dq_control import Quaternion
 
 
+class SimulationStopped(Exception):
+    """Raised when a user closes a simulator's native viewer."""
+
+
 @dataclass
 class DroneState:
     """Normalized simulator-independent vehicle state."""
@@ -84,15 +88,17 @@ class SimConfig:
     kalman_measurement_std: float = 0.03
     kalman_acceleration_std: float = 0.5
     seed: int = 0
+    controller: str = "analytic"  # analytic | learned | data_driven ("analytical" accepted)
+    learned_model: str | None = None  # LearnedResponse model for pybullet/mujoco/gazebo
+    dynamics_model: str | None = None  # IdentifiedDynamics model for ArduPilot (data_driven)
+    excitation: float = 0.0
     ardupilot_path: str | None = None
     ardupilot_gazebo_path: str | None = None
     ardupilot_startup_timeout: float = 120.0
     ardupilot_land_timeout: float = 60.0
     ardupilot_max_speed: float = 2.0
-    ardupilot_low_resource: bool = False
+    ardupilot_low_resource: bool = True
     ardupilot_min_separation: float = .65
-    controller: str = "analytical"
-    dynamics_model: str | None = None
 
     def control_timestep(self) -> float:
         if self.ctrl_freq <= 0:

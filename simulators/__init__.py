@@ -44,7 +44,15 @@ register_backend("gazebo", GazeboBackend)
 register_backend("mujoco", MuJoCoBackend)
 register_backend("kinematic", KinematicBackend)
 
-register_backend("ardupilot", ArduPilotBackend)
+# Future backends
+def _ardupilot(cfg):
+    import sys
+    if sys.platform == "win32":
+        return GazeboBackend(cfg)  # WSL transport selects the ArduPilot worker.
+    from .ardupilot import ArduPilotBackend
+    return ArduPilotBackend(cfg)
+
+register_backend("ardupilot", _ardupilot)
 
 
 __all__ = [

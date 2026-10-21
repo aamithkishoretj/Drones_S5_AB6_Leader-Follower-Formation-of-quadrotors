@@ -1,10 +1,11 @@
 # Course concepts in the dual-quaternion formation project
 
-The original quaternion algebra, dual-quaternion pose representation, controller
-equations and gain sets are retained. The original leader–follower law remains
-available as an explicit legacy mode; recorded-path following is now the default. New reference
-generators and optional position estimation surround that controller. The
-analysis examples do not replace the control law.
+The main implementation now uses [data-driven predictive control](data_driven.md)
+with dual-quaternion pose error, learned future-state prediction, and bounded
+optimization. Quaternion algebra is preserved. The original controller is an
+explicit `--controller analytic` baseline. Recorded-path following remains the
+default. The examples below are optional supporting demonstrations; they are
+not what makes the main controller data-driven.
 
 ## Run the extensions
 
@@ -12,8 +13,8 @@ From the repository root in PowerShell, use the existing virtual environment:
 
 ```powershell
 .venv/Scripts/python.exe -m pip install -r requirements.txt -r requirements-course.txt
-.venv/Scripts/python.exe -B scripts/run_experiment.py --experiment real_eig --simulator kinematic --trajectory bspline --duration 30 --optimize_path --kalman --position_noise_std 0.03
-.venv/Scripts/python.exe -B scripts/run_experiment.py --experiment real_eig --simulator kinematic --trajectory interpolated --duration 30
+.venv/Scripts/python.exe -B scripts/run_experiment.py --controller analytic --experiment real_eig --simulator kinematic --trajectory bspline --duration 30 --optimize_path --kalman --position_noise_std 0.03
+.venv/Scripts/python.exe -B scripts/run_experiment.py --controller analytic --experiment real_eig --simulator kinematic --trajectory interpolated --duration 30
 .venv/Scripts/python.exe -B scripts/analyze_course_concepts.py
 .venv/Scripts/python.exe -B -m pytest -q
 ```

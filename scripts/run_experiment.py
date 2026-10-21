@@ -20,6 +20,7 @@ from dq_control import (
     PotatoChipTrajectory, PotatoChipParams,
 )
 from simulators import SimConfig, LeaderFollowerSimulation, available_simulators
+from simulators.leader_follower import resolve_controller
 from utils import save_run
 from dq_control import Quaternion
 
@@ -27,7 +28,7 @@ from dq_control import Quaternion
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument(
-        "--experiment", choices=list(EXPERIMENTS.keys()), required=True,
+        "--experiment", choices=list(EXPERIMENTS.keys()), default="real_eig",
         help="Which gain set from Section V to run.",
     )
     p.add_argument(
@@ -41,6 +42,11 @@ def parse_args():
              "cos(k*theta) ripple in z).",
     )
     p.add_argument("--duration", type=float, default=30.0, help="Simulation duration, s.")
+    p.add_argument("--controller", choices=["auto", "learned", "analytic", "analytical", "data_driven"], default="auto",
+                   help="auto = data_driven on ArduPilot, analytic on kinematic, learned elsewhere. "
+                        "learned = identified-dynamics DQ predictive control (on ArduPilot this is data_driven); "
+                        "analytic (alias analytical) = original baseline")
+    p.add_argument("--model", help="Backend-specific learned response .npz; defaults to models/<simulator>_response.npz")
     p.add_argument(
         "--physics_freq", "--pyb_freq", dest="pyb_freq", type=int, default=240,
         help="Physics steps / s. Used by PyBullet; accepted for compatibility with the original CLI.",
@@ -50,8 +56,6 @@ def parse_args():
     p.add_argument("--gazebo_render_engine", choices=["ogre2", "ogre"], default="ogre2",
                    help="Gazebo GUI renderer; try ogre for WSL graphics issues")
     p.add_argument("--output", type=str, default=os.path.join(_ROOT, "results"))
-    p.add_argument("--controller", choices=["auto", "analytical", "data_driven"], default="auto",
-                   help="ArduPilot defaults to learned dual-quaternion predictive control; analytical is the legacy teacher")
     p.add_argument("--dynamics_model", default=os.path.join(_ROOT, "models", "ardupilot_dq_dynamics.npz"),
                    help="Validated SITL command-response model required by the data-driven controller")
     ap = p.add_argument_group("ArduPilot SITL + Gazebo")
@@ -203,13 +207,15 @@ def main():
     gains = get_gains(args.experiment)
     controller = args.controller
     if controller == "auto":
-        controller = "data_driven" if args.simulator == "ardupilot" else "analytical"
+        controller = {"ardupilot": "data_driven", "kinematic": "analytic"}.get(args.simulator, "learned")
+    controller = resolve_controller(controller, args.simulator)
     if controller == "data_driven" and args.simulator != "ardupilot":
-        raise ValueError("The learned model is specific to ArduPilot; select --simulator ardupilot")
+        raise ValueError("The data-driven model is specific to ArduPilot; select --simulator ardupilot")
     cfg = SimConfig(
         simulator=args.simulator,
         controller=controller,
         dynamics_model=args.dynamics_model,
+        learned_model=args.model or os.path.join(_ROOT, "models", f"{args.simulator}_response.npz"),
         gazebo_render_engine=args.gazebo_render_engine,
         duration_sec=args.duration,
         pyb_freq=args.pyb_freq,
@@ -239,21 +245,24 @@ def main():
     leader_traj = build_leader_trajectory(args)
 
     print(
-        f"[run_experiment] simulator={args.simulator}  experiment={args.experiment}  "
+        f"[run_experiment] simulator={args.simulator}  controller={controller}  experiment={args.experiment}  "
         f"trajectory={args.trajectory}  follower_offset_mode={follower_offset_mode}  "
-        f"duration={args.duration}s  gui={args.gui} controller={controller}"
+        f"duration={args.duration}s  gui={args.gui}"
     )
     sim = LeaderFollowerSimulation(gains=gains, cfg=cfg, leader_traj=leader_traj)
     log = sim.run()
     log["run_options_json"] = np.asarray(json.dumps(vars(args), sort_keys=True))
     log["controller"] = np.asarray(controller)
+    if controller in ("learned", "data_driven"):
+        from dq_control.learned_control import file_digest
+        log["model_sha256"] = np.asarray(file_digest(cfg.learned_model if controller == "learned" else cfg.dynamics_model))
     if args.trajectory == "bspline":
         log["trajectory_control_points"] = leader_traj.points.copy()
         log["trajectory_knots"] = leader_traj.knots.copy()
     elif args.trajectory == "interpolated":
         log["trajectory_endpoints"] = np.array([leader_traj.start, leader_traj.end])
         log["trajectory_attitudes_xyzw"] = np.array([leader_traj.q0.as_array(), leader_traj.q1.as_array()])
-    run_name = f"{args.simulator}_{args.experiment}_{args.trajectory}"
+    run_name = f"{args.simulator}_{controller}_{args.experiment}_{args.trajectory}"
     save_run(log, experiment_name=run_name, output_folder=args.output)
 
 

@@ -151,8 +151,12 @@ class ArduPilotBackend(SimulationBackend):
             if not math.isfinite(value) or value <= 0:
                 raise ValueError("ArduPilot timeouts, speed limit and minimum separation must be finite and positive")
         self.cfg.control_timestep()
-        ap = Path(self.cfg.ardupilot_path or sibling_repo("ardupilot")).resolve()
-        plugin = Path(self.cfg.ardupilot_gazebo_path or sibling_repo("ardupilot_gazebo")).resolve()
+        # Environment variables let the UI and WSL worker, which have no path
+        # fields, use an installation that is not the default sibling folder.
+        ap = Path(self.cfg.ardupilot_path or os.environ.get("ARDUPILOT_PATH")
+                  or sibling_repo("ardupilot")).resolve()
+        plugin = Path(self.cfg.ardupilot_gazebo_path or os.environ.get("ARDUPILOT_GAZEBO_PATH")
+                      or sibling_repo("ardupilot_gazebo")).resolve()
         binary = ap / "build/sitl/bin/arducopter"
         missing = []
         if not shutil.which("gz"):
@@ -170,7 +174,7 @@ class ArduPilotBackend(SimulationBackend):
             from pymavlink import mavutil
             self.mavutil = mavutil
         except ImportError:
-            missing.append("pymavlink (pip install -r requirements-ardupilot.txt)")
+            missing.append("pymavlink (pip install -r requirements-ardupilot.txt; on Windows, in the WSL worker's environment)")
         if missing:
             raise RuntimeError("ArduPilot setup incomplete:\n  - " + "\n  - ".join(missing)
                                + "\nSee ardupilot/README.md or run bash scripts/setup_ardupilot.sh")
