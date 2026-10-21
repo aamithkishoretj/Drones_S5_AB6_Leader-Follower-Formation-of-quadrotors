@@ -871,7 +871,7 @@ $$
 Orientation is interpolated on the quaternion sphere:
 
 $$
-q_{F,d}=\operatorname{SLERP}(q_L^a,q_L^b,\alpha).
+q_{F,d}=\mathrm{SLERP}(q_L^a,q_L^b,\alpha).
 $$
 
 The resulting position and attitude form the follower's desired dual quaternion. This reference is passed to the same selected controller as the leader's reference. At a figure-eight crossing, chronological history determines which segment to follow; the code does not jump to the nearest unrelated crossing segment.
@@ -1244,14 +1244,14 @@ $run = Get-ChildItem results/pybullet_learned_*.npz |
 For position tracking, the training report uses
 
 $$
-\operatorname{RMSE}_p=\sqrt{\frac{1}{N}\sum_{k=1}^{N}\|p_k-p_{d,k}\|_2^2}.
+\mathrm{RMSE}_p=\sqrt{\frac{1}{N}\sum_{k=1}^{N}\|p_k-p_{d,k}\|_2^2}.
 $$
 
 For a relative orientation quaternion with vector part $q_v$ and scalar part $q_0$, the shortest rotation-angle error and its RMSE are
 
 $$
-\theta_k=2\operatorname{atan2}(\|q_v\|_2,|q_0|),\qquad
-\operatorname{RMSE}_{\theta}=\sqrt{\frac{1}{N}\sum_{k=1}^{N}\theta_k^2}.
+\theta_k=2\mathrm{atan2}(\|q_v\|_2,|q_0|),\qquad
+\mathrm{RMSE}_{\theta}=\sqrt{\frac{1}{N}\sum_{k=1}^{N}\theta_k^2}.
 $$
 
 Position error is measured against each vehicle's own desired pose. It does not by itself prove exact geometric retracing, a guaranteed inter-drone distance, or collision avoidance. All measured simulator results are collected in Section 23 at the end.
@@ -1435,7 +1435,7 @@ This order differs from the desired-frame analytic error in Section 5. They must
 
 $$
 e=\begin{bmatrix}p_{\mathrm{rel}}\\\theta a\end{bmatrix},\qquad
-\theta a=2\operatorname{atan2}(\|q_v\|,q_0)\frac{q_v}{\|q_v\|}.
+\theta a=2\mathrm{atan2}(\|q_v\|,q_0)\frac{q_v}{\|q_v\|}.
 $$
 
 The quaternion sign is selected so $q_0\ge0$; the zero-vector limit returns zero. `dual_pose_error()` implements this calculation. The learned model predicts response; dual-quaternion algebra still represents poses, composes transformations and supplies the tracking error.
@@ -1465,8 +1465,8 @@ $$
 The diagonal residual weights are
 
 $$
-W_p=\operatorname{diag}(4,4,5,0.5,0.5,1.5),\qquad
-W_v=\operatorname{diag}(0.3,0.3,0.4,0.05,0.05,0.15).
+W_p=\mathrm{diag}(4,4,5,0.5,0.5,1.5),\qquad
+W_v=\mathrm{diag}(0.3,0.3,0.4,0.05,0.05,0.15).
 $$
 
 These weights, horizon and regularization values are designed parameters, not learned coefficients. SciPy's bounded least-squares solver chooses six command values. Only the current command is applied; the next measured state triggers a new solve. This is a constant-input receding-horizon controller with a local pose approximation, not a full nonlinear dual-quaternion optimization. A failed solve raises an error instead of silently switching to analytic control.
@@ -1523,7 +1523,7 @@ The analytic eigenvalue derivation is retained for comparison, not as a proof of
 Results are grouped here at the end. Position RMSE measures actual position against each drone's own desired position; the follower reference is its point on the leader's recorded trail. Lower values indicate closer reference tracking, not necessarily safer separation. Values below are copied from saved reports and rounded, not newly rerun for this documentation update.
 
 $$
-\operatorname{RMSE}_p=\sqrt{\frac1N\sum_{k=1}^{N}\|p_k-p_{d,k}\|_2^2}.
+\mathrm{RMSE}_p=\sqrt{\frac1N\sum_{k=1}^{N}\|p_k-p_{d,k}\|_2^2}.
 $$
 
 Each comparison below uses 20-second evaluation flights. Each learned vehicle performs 960 optimization steps. The two reference cases differ from the training recordings, but the reported development comparisons are not a universal benchmark or a ranking of simulator realism.
