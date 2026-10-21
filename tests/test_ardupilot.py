@@ -330,3 +330,14 @@ def test_shared_runner_uses_flight_time_after_takeoff(monkeypatch):
     log = sim.run()
     assert np.allclose(log["t"], [0, .25, .5, .75])
     assert backend.clock == 1.
+
+
+def test_gazebo_transport_is_pinned_to_localhost(tmp_path):
+    # A VPN interface (e.g. Cloudflare WARP) breaks gz-transport discovery between
+    # the Gazebo server and GUI; all peers of this backend are local processes.
+    from simulators.ardupilot import gazebo_env
+    env = gazebo_env(tmp_path, tmp_path / "plugin", {"PATH": "/usr/bin"})
+    assert env["GZ_IP"] == "127.0.0.1"
+    assert env["GZ_PARTITION"] == "formation_" + tmp_path.name
+    assert env["GZ_SIM_SYSTEM_PLUGIN_PATH"].startswith(str(tmp_path / "plugin" / "build"))
+    assert gazebo_env(tmp_path, tmp_path, {"GZ_IP": "10.0.0.5"})["GZ_IP"] == "10.0.0.5"

@@ -99,6 +99,21 @@ def write_world(directory, plugin_repo, initial_xyzs, initial_rpys, low_resource
     return path, model_root
 
 
+def gazebo_env(run_dir, plugin_repo, base=None):
+    """Environment for this run's Gazebo server, GUI and trail requests."""
+    env = dict(os.environ if base is None else base)
+    env["GZ_PARTITION"] = "formation_" + run_dir.name
+    # Every peer is local. Without this, a VPN interface (e.g. Cloudflare WARP)
+    # can stop the server and GUI discovering each other, so the world never loads.
+    env.setdefault("GZ_IP", "127.0.0.1")
+    for key, paths in {
+        "GZ_SIM_SYSTEM_PLUGIN_PATH": [plugin_repo / "build"],
+        "GZ_SIM_RESOURCE_PATH": [run_dir / "models", plugin_repo / "models", plugin_repo / "worlds"],
+    }.items():
+        env[key] = os.pathsep.join(map(str, paths)) + os.pathsep + env.get(key, "")
+    return env
+
+
 @dataclass
 class Vehicle:
     connection: object
@@ -205,13 +220,7 @@ class ArduPilotBackend(SimulationBackend):
             raise ValueError("Initial altitude must exceed 0.395 m for Iris takeoff")
         self.run_dir = Path(self.cfg.output_folder).resolve() / "ardupilot_runtime" / uuid.uuid4().hex[:12]
         self.run_dir.mkdir(parents=True)
-        self.env = os.environ.copy()
-        self.env["GZ_PARTITION"] = "formation_" + self.run_dir.name
-        for key, paths in {
-            "GZ_SIM_SYSTEM_PLUGIN_PATH": [plugin / "build"],
-            "GZ_SIM_RESOURCE_PATH": [self.run_dir / "models", plugin / "models", plugin / "worlds"],
-        }.items():
-            self.env[key] = os.pathsep.join(map(str, paths)) + os.pathsep + self.env.get(key, "")
+        self.env = gazebo_env(self.run_dir, plugin)
         try:
             world, _ = write_world(self.run_dir, plugin, xyz, rpy, self.cfg.ardupilot_low_resource)
             print(f"[ardupilot] Runtime and diagnostic logs: {self.run_dir}")

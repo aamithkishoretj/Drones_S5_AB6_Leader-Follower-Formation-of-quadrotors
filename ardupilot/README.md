@@ -182,6 +182,10 @@ startup fails. The backend only terminates processes it launched.
   arming checks remain enabled; RC-loss failsafe is disabled for this demo,
   while Python sends a GCS heartbeat every second.
 - Slow startup: increase `--ardupilot_startup_timeout 180`.
+- GUI run times out at "SITL heartbeat" while headless runs work, and SITL logs
+  repeat `No JSON sensor message received`: Gazebo's server and GUI could not
+  discover each other, usually because of a VPN interface such as Cloudflare WARP.
+  The backend now sets `GZ_IP=127.0.0.1` unless you set `GZ_IP` yourself.
 - Graphics errors: try `--gazebo_render_engine ogre`, or the headless command.
 - Whole desktop lag: check the renderer in `~/.gz/rendering/ogre.log` (or
   `ogre2.log`). `llvmpipe` means CPU rendering. On this machine, the current
