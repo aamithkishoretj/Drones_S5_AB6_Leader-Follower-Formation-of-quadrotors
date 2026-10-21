@@ -200,6 +200,7 @@ class GazeboBackend(SimulationBackend):
         try:
             self._wsl_request({
                 "op": "reset",
+                "backend": self.cfg.simulator,
                 "config": {
                     "duration_sec": float(self.cfg.duration_sec),
                     "pyb_freq": int(self.cfg.pyb_freq),
@@ -209,10 +210,14 @@ class GazeboBackend(SimulationBackend):
                     "trails": bool(self.cfg.trails),
                     "output_folder": self._wsl_output_folder(),
                     "gazebo_render_engine": str(self.cfg.gazebo_render_engine),
+                    **({key: getattr(self.cfg, key) for key in (
+                        "ardupilot_startup_timeout", "ardupilot_land_timeout", "ardupilot_max_speed",
+                        "ardupilot_low_resource", "ardupilot_min_separation")}
+                       if self.cfg.simulator == "ardupilot" else {}),
                 },
                 "initial_xyzs": np.asarray(initial_xyzs, dtype=float).tolist(),
                 "initial_rpys": np.asarray(initial_rpys, dtype=float).tolist(),
-            }, timeout=90)
+            }, timeout=180 if self.cfg.simulator == "ardupilot" else 90)
         except BaseException:
             self.close()
             raise
@@ -282,6 +287,12 @@ class GazeboBackend(SimulationBackend):
 
     def draw_trails(self, positions):
         if not self.cfg.gui or not self.cfg.trails:
+            return
+        if self._wsl_worker is not None:
+            # Markers must be sent inside the worker's Gazebo partition.
+            if time.monotonic() - self._trail_last >= .1:
+                self._wsl_request({"op": "draw_trails", "positions": np.asarray(positions).tolist()})
+                self._trail_last = time.monotonic()
             return
         self.trails.update(positions)
         if time.monotonic()-self._trail_last < .5:
@@ -559,7 +570,8 @@ class GazeboBackend(SimulationBackend):
                 if worker.poll() is None and worker.stdin is not None:
                     worker.stdin.write('{"op":"close"}\n')
                     worker.stdin.flush()
-                    worker.wait(timeout=10)
+                    worker.wait(timeout=self.cfg.ardupilot_land_timeout + 15
+                                if self.cfg.simulator == "ardupilot" else 10)
             except Exception:
                 worker.terminate()
                 try:

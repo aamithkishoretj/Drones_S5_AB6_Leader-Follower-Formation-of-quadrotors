@@ -82,6 +82,8 @@ class LeaderFollowerSimulation:
         filters = [PositionKalmanFilter(self.ctrl_timestep, cfg.kalman_measurement_std,
                                        cfg.kalman_acceleration_std) for _ in range(2)] if cfg.kalman else None
         self.backend.reset(self.initial_xyzs, self.initial_rpys)
+        if live_parameters is not None and hasattr(self.follower_traj, "history_distance"):
+            self.follower_traj.history_distance = 3.0
 
         log = {k: [] for k in (
             "t",
@@ -107,6 +109,7 @@ class LeaderFollowerSimulation:
             }
             previous_reference_position = None
             previous_reference_yaw = None
+            radius_ratio = getattr(params, "r_y", .65) / max(getattr(params, "r_x", .85), 1e-6)
             for step in range(num_steps):
                 if stop_event is not None and stop_event.is_set():
                     break
@@ -120,7 +123,7 @@ class LeaderFollowerSimulation:
                     # not the trajectory's absolute phase.
                     targets = {
                         "leader_speed": (0.03, 0.8, 0.35),
-                        "route_radius": (0.2, 2.0, 0.5),
+                        "route_radius": (0.2, 3.0, 0.5),
                         "altitude": (0.3, 3.0, 0.4),
                         "follow_distance": (0.25, 2.5, 0.5),
                     }
@@ -139,6 +142,7 @@ class LeaderFollowerSimulation:
                     if params is not None:
                         if hasattr(params, "r_x"):
                             params.r_x = active["route_radius"]
+                            params.r_y = active["route_radius"] * radius_ratio
                         elif hasattr(params, "r"):
                             params.r = active["route_radius"]
                         if hasattr(params, "z0"):
@@ -227,6 +231,7 @@ class LeaderFollowerSimulation:
                 self.backend.apply_commands(commands)
                 next_states = self.backend.step()
                 if step_callback is not None:
+                    self.live_applied = dict(active)
                     step_callback(t, next_states)
                 if step_callback is None:
                     log["response_x"].append(training_states)

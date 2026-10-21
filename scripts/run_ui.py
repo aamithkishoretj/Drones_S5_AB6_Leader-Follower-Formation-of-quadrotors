@@ -6,8 +6,8 @@ import os
 import queue
 import sys
 import threading
-import ctypes
-import ctypes.wintypes
+import time
+from collections import deque
 
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _ROOT not in sys.path:
@@ -26,9 +26,14 @@ class SimulationUI:
     def __init__(self, root):
         self.root = root
         root.title("Leader–Follower Drone Simulation")
-        root.geometry("1120x760")
-        root.minsize(900, 620)
+        root.geometry("440x790")
+        root.minsize(420, 740)
         self.events = queue.Queue(maxsize=1)
+        self.plot_window = None
+        self.plot_points = [deque(maxlen=600), deque(maxlen=600)]
+        self.last_plot = 0.0
+        self.choices = []
+        self.closing = False
         self.live = {"lock": threading.Lock(), "values": {}}
         self.stop_event = None
         self.worker = None
@@ -50,16 +55,15 @@ class SimulationUI:
         outer = ttk.Frame(self.root, padding=16)
         outer.pack(fill="both", expand=True)
         ttk.Label(outer, text="Leader–Follower Flight Lab", style="Header.TLabel").pack(anchor="w")
-        ttk.Label(outer, text="Choose a simulator, launch the flight, and adjust its controls while it runs.").pack(anchor="w", pady=(3, 12))
+        ttk.Label(outer, text="Controls stay here; simulators open in their own windows.").pack(anchor="w", pady=(3, 12))
         body = ttk.Frame(outer)
         body.pack(fill="both", expand=True)
-        panel = ttk.Frame(body, padding=(0, 0, 16, 0), width=280)
-        panel.pack(side="left", fill="y")
-        panel.pack_propagate(False)
+        panel = ttk.Frame(body)
+        panel.pack(fill="both", expand=True)
         self.simulator = tk.StringVar(value="pybullet")
         self.trajectory = tk.StringVar(value="lemniscate")
-        self.controller = tk.StringVar(value="analytic")
-        self._choice(panel, "Simulator", self.simulator, ["pybullet", "gazebo", "mujoco", "kinematic"])
+        self.controller = tk.StringVar(value="learned")
+        self._choice(panel, "Simulator", self.simulator, ["pybullet", "gazebo", "mujoco", "kinematic", "ardupilot"])
         self._choice(panel, "Leader route", self.trajectory, ["lemniscate", "potato_chip"])
         self._choice(panel, "Controller", self.controller, ["analytic", "learned"])
         ttk.Label(panel, text="Live parameters", style="Header.TLabel").pack(anchor="w", pady=(16, 3))
@@ -67,12 +71,12 @@ class SimulationUI:
         self.distance = tk.DoubleVar(value=0.8)
         self.radius = tk.DoubleVar(value=0.85)
         self.altitude = tk.DoubleVar(value=1.0)
-        self._scale(panel, "Leader speed (rad/s)", self.speed, 0.03, 0.8, "leader_speed")
-        self._scale(panel, "Follower gap (m)", self.distance, 0.25, 2.5, "follow_distance")
-        self._scale(panel, "Route radius (m)", self.radius, 0.2, 2.0, "route_radius")
-        self._scale(panel, "Flight altitude (m)", self.altitude, 0.3, 3.0, "altitude")
+        self._scale(panel, "Leader speed (rad/s)", self.speed, 0.05, 0.3, "leader_speed")
+        self._scale(panel, "Follower gap (m)", self.distance, 0.65, 2.5, "follow_distance")
+        self._scale(panel, "Route radius (m)", self.radius, 0.6, 3.0, "route_radius")
+        self._scale(panel, "Flight altitude (m)", self.altitude, 0.8, 3.0, "altitude")
         self.status = tk.StringVar(value="Ready")
-        ttk.Label(panel, textvariable=self.status, wraplength=255).pack(anchor="w", pady=(10, 12))
+        ttk.Label(panel, textvariable=self.status, wraplength=380).pack(anchor="w", pady=(10, 12))
         buttons = ttk.Frame(panel)
         buttons.pack(fill="x", side="bottom")
         self.start_button = ttk.Button(buttons, text="▶  Start simulation", command=self.start)
@@ -80,24 +84,38 @@ class SimulationUI:
         self.stop_button = ttk.Button(buttons, text="■  Stop simulation", command=self.stop, state="disabled")
         self.stop_button.pack(fill="x", pady=3)
 
-        self.native_host = ttk.Frame(body, relief="sunken", borderwidth=2)
-        self.native_host.pack(side="right", fill="both", expand=True)
-        self.native_message = tk.StringVar(
-            value="Start a run to display the selected simulator's native application here."
-        )
-        self.native_label = ttk.Label(
-            self.native_host, textvariable=self.native_message, anchor="center",
-            justify="center", wraplength=560,
-        )
-        self.native_label.place(relx=.5, rely=.5, anchor="center")
-        self.native_hwnd = None
-        self.native_host.bind("<Configure>", self._resize_native_window)
+        self.help_text = tk.StringVar()
+        ttk.Label(panel, textvariable=self.help_text, wraplength=380).pack(anchor="w", pady=8)
+        self.applied_text = tk.StringVar(value="Move sliders to set targets. Applied values appear during flight.")
+        ttk.Label(panel, textvariable=self.applied_text, wraplength=380).pack(anchor="w", pady=8)
+        self.simulator.trace_add("write", lambda *_: self._selection_changed())
+        self._selection_changed()
+
+    def _selection_changed(self):
+        name = self.simulator.get()
+        if name == "kinematic":
+            self.controller.set("analytic")
+            self.controller_box.configure(state="disabled")
+            self.help_text.set("Kinematic reference: ideal motion without motors or physics. Opens a separate 3D path plot; no trained model is needed.")
+        elif name == "ardupilot":
+            self.controller.set("analytic")
+            self.controller_box.configure(state="disabled")
+            self.speed.set(.105); self.radius.set(2.55)
+            self.distance.set(1.5); self.altitude.set(2.)
+            self.help_text.set("ArduPilot SITL + Gazebo in WSL. Requires built ArduCopter, ardupilot_gazebo and pymavlink. This integration uses analytic control; the other branch's learned model has a different format.")
+        else:
+            self.speed.set(float(np.pi / 15)); self.radius.set(.85)
+            self.distance.set(.8); self.altitude.set(1.)
+            self.controller.set("learned")
+            self.controller_box.configure(state="readonly")
+            self.help_text.set("Sliders change the running flight, with gradual transitions. Red = leader; blue = follower. MuJoCo uses simplified force control with yaw tracking." if name == "mujoco" else "Sliders change the running flight, with gradual transitions. Red = leader; blue = follower.")
 
     def _choice(self, parent, label, variable, options):
         ttk.Label(parent, text=label).pack(anchor="w", pady=(7, 2))
         box = ttk.Combobox(parent, textvariable=variable, values=options, state="readonly")
         box.pack(fill="x")
-        setattr(self, label.lower().replace(" ", "_"), box)
+        self.choices.append(box)
+        if label == "Controller": self.controller_box = box
 
     def _scale(self, parent, label, variable, low, high, key):
         row = ttk.Frame(parent)
@@ -111,9 +129,10 @@ class SimulationUI:
             with self.live["lock"]:
                 self.live["values"][key] = v
         scale = tk.Scale(row, variable=variable, from_=low, to=high, resolution=(0.01 if high > 1 else 0.005),
-                         orient="horizontal", showvalue=False, length=230, command=changed,
+                         orient="horizontal", showvalue=False, length=230,
                          bg="#101820", fg="#e6edf3", troughcolor="#344454", highlightthickness=0)
         scale.pack(fill="x")
+        variable.trace_add("write", lambda *_: changed(variable.get()))
         changed(variable.get())
 
     def start(self):
@@ -123,38 +142,45 @@ class SimulationUI:
         trajectory_name = self.trajectory.get()
         try:
             if trajectory_name == "lemniscate":
-                traj = LeaderTrajectory(LemniscateParams(w_d=self.speed.get()))
+                traj = LeaderTrajectory(LemniscateParams(w_d=self.speed.get(), r_x=self.radius.get(),
+                    r_y=self.radius.get()*.65/.85, z0=self.altitude.get()))
             else:
-                traj = PotatoChipTrajectory(PotatoChipParams(w=self.speed.get()))
+                traj = PotatoChipTrajectory(PotatoChipParams(w=self.speed.get(), r=self.radius.get(), z0=self.altitude.get()))
             cfg = SimConfig(simulator=name, controller=self.controller.get(),
                             learned_model=os.path.join(_ROOT, "models", f"{name}_response.npz"),
                             gui=True, duration_sec=1e9, trails=True, follow_distance=self.distance.get(),
+                            gazebo_render_engine="ogre",
                             follower_offset_mode="path")
             sim = LeaderFollowerSimulation(get_gains("real_eig"), cfg, traj)
         except Exception as exc:
             messagebox.showerror("Could not start simulation", str(exc))
             return
-        self.native_hwnd = None
         self.stop_event = threading.Event()
         self.running = True
         self.start_button.configure(state="disabled")
         self.stop_button.configure(state="normal")
-        self.native_message.set(self._viewer_start_message(name))
-        self.status.set(f"Starting {name} native viewer…")
+        self.run_name = name
+        for choice in self.choices: choice.configure(state="disabled")
+        self.status.set(f"Starting {name}…")
+        self.plot_points = [deque(maxlen=600), deque(maxlen=600)]
+        if name == "kinematic": self._open_plot()
+        with self.live["lock"]:
+            self.live["values"] = dict(leader_speed=self.speed.get(), follow_distance=self.distance.get(),
+                                      route_radius=self.radius.get(), altitude=self.altitude.get())
+        next_wall = time.monotonic()
+
 
         def on_step(t, states):
-            try:
-                self.events.put_nowait((t, None, None))
-            except queue.Full:
-                try: self.events.get_nowait()
-                except queue.Empty: pass
-                try: self.events.put_nowait((t, None, None))
-                except queue.Full: pass
+            nonlocal next_wall
+            if name == "kinematic":
+                next_wall += cfg.control_timestep()
+                self.stop_event.wait(max(0., next_wall-time.monotonic()))
+            self._post_event((t, [s.position.copy() for s in states], dict(sim.live_applied)))
         def run():
             try:
                 sim.run(stop_event=self.stop_event, step_callback=on_step, live_parameters=self.live)
                 self._post_event((None, None, "Simulation stopped."))
-            except SimulationStopped as exc:
+            except (SimulationStopped, KeyboardInterrupt) as exc:
                 self._post_event((None, None, str(exc) or "Simulation stopped."))
             except Exception as exc:
                 self._post_event((None, None, f"Simulation error: {exc}"))
@@ -172,6 +198,9 @@ class SimulationUI:
 
     def _finished(self):
         self.running = False
+        for choice in self.choices: choice.configure(state="readonly")
+        if self.simulator.get() in ("kinematic", "ardupilot"):
+            self.controller_box.configure(state="disabled")
         self.start_button.configure(state="normal")
         self.stop_button.configure(state="disabled")
         if self.status.get() == "Stopping simulation…":
@@ -184,14 +213,17 @@ class SimulationUI:
             except queue.Empty: break
         if latest is not None:
             t, positions, info = latest
-            if info:
+            if isinstance(info, str):
                 self.status.set(info)
             elif t is not None:
-                self.status.set(f"Running • t = {t:.1f} s • {self.simulator.get()}")
-        if self.running and self.native_hwnd is None and self.simulator.get() in ("pybullet", "mujoco"):
-            self._try_attach_native_window()
+                self.status.set(f"Running | t = {t:.1f} s | {self.run_name}")
+                self.applied_text.set("Applied: speed {leader_speed:.2f} rad/s | gap {follow_distance:.2f} m\nRadius {route_radius:.2f} m | altitude {altitude:.2f} m".format(**info))
+                if self.run_name == "kinematic": self._update_plot(positions)
         if self.running and self.worker_done:
             self._finished()
+        if self.closing and not self.running:
+            self.root.destroy()
+            return
         if self.root.winfo_exists(): self.root.after(40, self._poll)
 
     def _post_event(self, event):
@@ -203,64 +235,48 @@ class SimulationUI:
             try: self.events.put_nowait(event)
             except queue.Full: pass
 
-    def _viewer_start_message(self, backend):
-        if backend == "kinematic":
-            return "Kinematic mode has no native simulator application. Choose PyBullet or MuJoCo for a physics viewer."
-        if backend == "gazebo":
-            return "Starting Gazebo's native application. Gazebo runs in WSL and opens in its own WSLg window."
-        return f"Starting the {backend} native viewer…"
+    def _open_plot(self):
+        from matplotlib.figure import Figure
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        if self.plot_window is not None and self.plot_window.winfo_exists():
+            self.plot_window.destroy()
+        self.plot_window = tk.Toplevel(self.root)
+        self.plot_window.title("Kinematic reference - ideal motion (no physics)")
+        fig = Figure(figsize=(7, 5))
+        self.axes = fig.add_subplot(111, projection="3d")
+        self.axes.set(xlabel="X (m)", ylabel="Y (m)", zlabel="Z (m)")
+        self.plot_lines = [self.axes.plot([], [], [], color=c, label=n)[0]
+                           for c, n in [("red", "Leader"), ("blue", "Follower")]]
+        self.axes.legend()
+        self.canvas = FigureCanvasTkAgg(fig, master=self.plot_window)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.plot_window.protocol("WM_DELETE_WINDOW", self._close_plot)
 
-    def _try_attach_native_window(self):
-        if sys.platform != "win32":
-            return
-        user32 = ctypes.windll.user32
-        title_words = {"pybullet": ("pybullet", "bullet"), "mujoco": ("mujoco",)}.get(self.simulator.get(), ())
-        windows = []
-        callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+    def _close_plot(self):
+        self.stop()
+        self.plot_window.destroy()
+        self.plot_window = None
 
-        def collect(hwnd, _):
-            if not user32.IsWindowVisible(hwnd) or int(hwnd) == int(self.root.winfo_id()):
-                return True
-            length = user32.GetWindowTextLengthW(hwnd)
-            title = ctypes.create_unicode_buffer(length + 1)
-            user32.GetWindowTextW(hwnd, title, length + 1)
-            pid = ctypes.wintypes.DWORD()
-            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            if title.value:
-                windows.append((int(hwnd), title.value, pid.value))
-            return True
-
-        callback = callback_type(collect)
-        user32.EnumWindows(callback, 0)
-        candidates = [item for item in windows if any(word in item[1].lower() for word in title_words)]
-        if not candidates:
-            candidates = [item for item in windows if item[2] == os.getpid()]
-        if not candidates:
-            return
-        hwnd, title, _pid = candidates[0]
-        try:
-            host = int(self.native_host.winfo_id())
-            style = user32.GetWindowLongW(hwnd, -16)  # GWL_STYLE
-            style = (style & ~0x80000000) | 0x40000000  # WS_POPUP -> WS_CHILD
-            user32.SetWindowLongW(hwnd, -16, style)
-            user32.SetParent(hwnd, host)
-            self.native_hwnd = hwnd
-            self.native_label.place_forget()
-            self.native_message.set(f"Native {self.simulator.get()} viewer: {title}")
-            self._resize_native_window()
-        except Exception as exc:
-            self.native_message.set(f"Native viewer is running in its own window ({exc}).")
-
-    def _resize_native_window(self, _event=None):
-        if self.native_hwnd is None or sys.platform != "win32":
-            return
-        user32 = ctypes.windll.user32
-        user32.MoveWindow(self.native_hwnd, 0, 0, max(1, self.native_host.winfo_width()),
-                          max(1, self.native_host.winfo_height()), True)
+    def _update_plot(self, positions):
+        if self.plot_window is None or not self.plot_window.winfo_exists(): return
+        for points, position in zip(self.plot_points, positions): points.append(position)
+        if time.monotonic()-self.last_plot < .1: return
+        self.last_plot = time.monotonic()
+        for line, points in zip(self.plot_lines, self.plot_points):
+            array = np.asarray(points)
+            line.set_data_3d(array[:, 0], array[:, 1], array[:, 2])
+        all_points = np.concatenate([np.asarray(p) for p in self.plot_points])
+        low, high = all_points.min(axis=0)-.4, all_points.max(axis=0)+.4
+        self.axes.set(xlim=(low[0], high[0]), ylim=(low[1], high[1]), zlim=(low[2], high[2]))
+        self.canvas.draw_idle()
 
     def _close(self):
-        if self.stop_event: self.stop_event.set()
-        self.root.destroy()
+        self.closing = True
+        if self.running:
+            self.stop()
+            self.status.set("Closing after simulator cleanup. ArduPilot may need time to land.")
+        else:
+            self.root.destroy()
 
 
 def main():

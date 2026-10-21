@@ -36,8 +36,13 @@ def main() -> int:
             if operation == "reset":
                 if backend is not None:
                     backend.close()
-                config = SimConfig(simulator="gazebo", **request["config"])
-                backend = GazeboBackend(config)
+                name = request.get("backend", "gazebo")
+                config = SimConfig(simulator=name, **request["config"])
+                if name == "ardupilot":
+                    from simulators.ardupilot import ArduPilotBackend
+                    backend = ArduPilotBackend(config)
+                else:
+                    backend = GazeboBackend(config)
                 backend.reset(request["initial_xyzs"], request["initial_rpys"])
                 result = [_state_packet(s) for s in backend.get_states()]
             elif operation == "get_states":
@@ -52,6 +57,9 @@ def main() -> int:
                 if backend is None:
                     raise RuntimeError("Gazebo backend has not been reset")
                 result = [_state_packet(s) for s in backend.step()]
+            elif operation == "draw_trails":
+                backend.draw_trails(request["positions"])
+                result = None
             elif operation == "close":
                 if backend is not None:
                     backend.close()

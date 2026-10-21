@@ -12,14 +12,14 @@ as `--controller analytic` for data collection and comparisons.
 See [training, results, limitations, and launch commands](docs/data_driven.md).
 
 **Desktop simulation UI:** Launch the interactive control panel with
-`python scripts/run_ui.py`. Select PyBullet, Gazebo, MuJoCo, or the kinematic
-reference backend, then start and stop the simulation from the panel. PyBullet
-and MuJoCo use their native viewers in the UI's simulation area. Gazebo opens
-its native WSLg window, while the kinematic reference has no native simulator
-application. Leader speed, follower gap, route radius, and flight altitude can
-be adjusted while the simulation runs. The UI uses the analytic controller by
-default; select the learned controller only after training that backend's
-response model. On Windows, Gazebo and ROS run inside WSL (Ubuntu 24.04 by
+`python scripts/run_ui.py`. The compact panel launches separate simulator
+windows; it no longer attempts to embed native windows. PyBullet, MuJoCo and
+Gazebo offer learned control with a trained response model. Kinematic mode
+uses analytic control and a separate 3D reference plot. ArduPilot SITL is also
+listed, with installation requirements described in [its guide](ardupilot/README.md).
+Leader speed, follower gap, route radius, and flight altitude can be adjusted
+while the simulation runs; applied values are displayed as they change.
+See [desktop control details](docs/ui_controls.md). On Windows, Gazebo and ROS run inside WSL (Ubuntu 24.04 by
 default); see [Gazebo setup](gazebo/README.md) for the required packages and
 WSL settings.
 Train first with `python scripts/train_data_driven.py --simulator pybullet`,

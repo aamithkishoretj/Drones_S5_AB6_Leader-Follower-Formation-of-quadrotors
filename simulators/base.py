@@ -91,6 +91,13 @@ class SimConfig:
     controller: str = "analytic"
     learned_model: str | None = None
     excitation: float = 0.0
+    ardupilot_path: str | None = None
+    ardupilot_gazebo_path: str | None = None
+    ardupilot_startup_timeout: float = 120.0
+    ardupilot_land_timeout: float = 60.0
+    ardupilot_max_speed: float = 2.0
+    ardupilot_low_resource: bool = True
+    ardupilot_min_separation: float = .65
 
     def control_timestep(self) -> float:
         if self.ctrl_freq <= 0:

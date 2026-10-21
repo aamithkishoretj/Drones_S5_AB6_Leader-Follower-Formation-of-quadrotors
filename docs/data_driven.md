@@ -121,7 +121,7 @@ A further 60-second Gazebo figure-eight completed at 0.02136 m leader and
 The 60-second summaries are saved in `results/learned_validation/summary.json`.
 These verification flights were headless; GUI rendering was not reverified.
 
-MuJoCo's present backend stabilizes attitude but does not follow requested yaw;
+The earlier MuJoCo evaluation below used a backend that did not follow requested yaw;
 its position metrics must not be presented as full pose-tracking success.
 Its learned commands frequently reach bounds. Angular prediction is also less
 accurate than translation in PyBullet. Inspect per-state prediction errors and
@@ -132,3 +132,7 @@ The original controller remains available with `--controller analytic`.
 `--experiment real_eig` selects its gain set; it does not train or change the
 learned controller. Optional Kalman filtering, B-splines and SLERP remain
 available, while unrelated Taylor/ODE demonstrations are supporting material.
+
+Update: MuJoCo now tracks commanded yaw. Its matching retrained model and
+new evaluation recordings are in `data/yaw_tracking/mujoco/`. Earlier MuJoCo
+results describe the old backend and should not be used for the new model.
