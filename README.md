@@ -218,7 +218,7 @@ $$
 
 Note that $\bar{q}$ and $-\bar{q}$ represent the *same* rotation — this "double cover" is a well-known and harmless property of quaternions.
 
-If the body rotates with angular velocity $\omega $ (expressed in the body frame), the quaternion evolves according to:
+If the body rotates with angular velocity $\omega$ (expressed in the body frame), the quaternion evolves according to:
 
 $$
 \dot{\bar q} = \tfrac{1}{2} \bar q \circ \bar\omega
@@ -235,13 +235,13 @@ $$
 \hat\alpha = a + \varepsilon b, \qquad a, b \in \mathbb{R}
 $$
 
-where $\varepsilon $ is a symbol (the *dual unit*) with the defining property:
+where $\varepsilon$ is a symbol (the *dual unit*) with the defining property:
 
 $$
 \varepsilon \neq 0, \qquad \varepsilon^2 = 0
 $$
 
-This is conceptually similar to how $i^{2} = -1$ defines complex numbers, except here squaring the special symbol gives **zero**, not $-1$. (Important: $\varepsilon $ is *not* "a small number close to zero" — it's an abstract algebraic symbol.)
+This is conceptually similar to how $i^{2} = -1$ defines complex numbers, except here squaring the special symbol gives **zero**, not $-1$. (Important: $\varepsilon$ is *not* "a small number close to zero" — it's an abstract algebraic symbol.)
 
 Dual numbers add component-wise, and multiply using the rule $\varepsilon ^{2} = 0$:
 
@@ -309,7 +309,7 @@ $$
 \dot Q = \tfrac{1}{2} Q \circ \Omega(\bar\omega, \bar v)
 $$
 
-This is the dual-quaternion analogue of $\dot{q} = \frac12  q \circ  \bar{\omega}$ for pure rotation — it simultaneously propagates both position and attitude, using commanded body-frame angular velocity $\omega $ and inertial-frame linear velocity $v$. This is the equation the simulation integrates forward in time to move each drone.
+This is the dual-quaternion analogue of $\dot{q} = \frac12  q \circ  \bar{\omega}$ for pure rotation — it simultaneously propagates both position and attitude, using commanded body-frame angular velocity $\omega$ and inertial-frame linear velocity $v$. This is the equation the simulation integrates forward in time to move each drone.
 
 
 ---
@@ -400,76 +400,63 @@ $$
 Here, $\bar{1}$ denotes the **identity quaternion**, representing zero attitude error.
 
 
+---
+
 ## 7. Why Tuning Is Hard: The Linearized Error Dynamics
 
-> **Analytic baseline:** This section preserves the original derivation. Learned mode uses the predictive formulation in Section 20; these gain-based stability arguments do not prove stability of the learned controller.
+> **Analytic baseline:** this section preserves the original derivation. Learned mode uses the predictive formulation in Section 20; these gain-based stability arguments do not prove stability of the learned controller.
 
-Adding the integral states `η` and `ξ` improves steady-state tracking, but it also introduces additional gain matrices.
+Adding the integral states $\eta$ and $\xi$ improves steady-state tracking, but it also introduces additional gain matrices.
 
-For the attitude subsystem, the relevant gains are:
+For the attitude subsystem, the relevant gains are
 
-```math
+$$
 K_{\omega,p}, \qquad K_{\omega,i}, \qquad K_{\eta}
-```
+$$
 
-The closed-loop attitude dynamics are linearized around the equilibrium:
+The closed-loop attitude dynamics are linearized around the equilibrium
 
-```math
+$$
 (\delta q,\eta)=(0,0)
-```
+$$
 
-The resulting linearized system is:
+The resulting linearized system is
 
-```math
-\begin{bmatrix}
-\dot{\delta q}\\
-\dot{\eta}
-\end{bmatrix}
-=
-M_{\omega}
-\begin{bmatrix}
-\delta q\\
-\eta
-\end{bmatrix}
-```
+$$
+\begin{bmatrix} \dot{\delta q}\\ \dot{\eta} \end{bmatrix} = M_{\omega} \begin{bmatrix} \delta q\\ \eta \end{bmatrix}
+$$
 
-where:
+where
 
-```math
-M_{\omega}
-=
-\frac{1}{2}
-\begin{bmatrix}
-K_{\omega,p} & K_{\omega,i}\\
--K_{\omega,i} & K_{\eta}
-\end{bmatrix}
-```
+$$
+M_{\omega} = \frac{1}{2} \begin{bmatrix} K_{\omega,p} & K_{\omega,i}\\ -K_{\omega,i} & K_{\eta} \end{bmatrix}
+$$
 
-Since each gain matrix is `3 × 3`, `M_ω` is a `6 × 6` matrix.
+Since each gain matrix is 3×3, $M_{\omega}$ is a 6×6 matrix.
 
-An analogous matrix `M_v` describes the linearized position-error dynamics.
+An analogous matrix $M_v$ describes the linearized position-error dynamics.
 
-For a linear system:
+For a linear system
 
-```math
+$$
 \dot{x}=Mx
-```
+$$
 
-the eigenvalues of `M` determine the local behavior of the system.
+the eigenvalues of $M$ determine the local behavior of the system.
 
-If an eigenvalue is real and negative:
+If
 
-```math
+$$
 \lambda<0
-```
+$$
 
 the corresponding mode decays exponentially.
 
-If an eigenvalue is complex:
+If
 
-```math
-\lambda=\alpha\pm j\beta,\qquad \alpha<0
-```
+$$
+\lambda=\alpha\pm j\beta, \qquad \alpha<0
+$$
 
 the corresponding mode decays while oscillating.
 
@@ -479,250 +466,192 @@ Therefore:
 - **Complex eigenvalues with negative real parts** → damped oscillatory behavior.
 - **Eigenvalues with positive real parts** → instability.
 
-Consequently, selecting controller gains can be viewed as a structured **pole-placement problem**.
+Consequently, selecting the controller gains can be viewed as a structured **pole-placement problem**.
 
-The difficulty is that `M_ω` is a block matrix. Its eigenvalues cannot, in general, be determined simply by considering the eigenvalues of the individual matrices:
+The difficulty is that $M_{\omega}$ is a block matrix. Its eigenvalues cannot, in general, be determined simply by considering the eigenvalues of the individual matrices
 
-```math
+$$
 K_{\omega,p}, \qquad K_{\omega,i}, \qquad K_{\eta}
-```
+$$
 
-Therefore, making each gain matrix individually negative definite does not, by itself, determine the exact eigenvalues of the complete matrix `M_ω`.
+Therefore, making each gain matrix individually negative definite does not by itself determine the exact eigenvalues of the complete matrix $M_{\omega}$.
+
 
 ---
 
 ## 8. The Pole-Placement / Gain-Selection Method
 
-> **Analytic baseline:** This section preserves the original derivation. Learned mode uses the predictive formulation in Section 20; these gain-based stability arguments do not prove stability of the learned controller.
+> **Analytic baseline:** this section preserves the original derivation. Learned mode uses the predictive formulation in Section 20; these gain-based stability arguments do not prove stability of the learned controller.
 
-The linearized matrix `M_ω` has a special spectral structure.
+The linearized matrix $M_{\omega}$ has a special spectral structure.
 
-Define:
+Define
 
-```math
-H=
-\begin{bmatrix}
-I_3 & 0\\
-0 & -I_3
-\end{bmatrix}
-```
+$$
+H = \begin{bmatrix} I_3 & 0\\ 0 & -I_3 \end{bmatrix}
+$$
 
-and the corresponding indefinite inner product:
+and the corresponding indefinite inner product
 
-```math
-[x,y]_H=x^{\mathsf T}Hy
-```
+$$
+[x,y]_H = x^{\mathsf T}Hy
+$$
 
-The matrix `M_ω` satisfies:
+The matrix $M_{\omega}$ satisfies
 
-```math
-HM_{\omega}=M_{\omega}^{\mathsf T}H
-```
+$$
+HM_{\omega} = M_{\omega}^{\mathsf T}H
+$$
 
-Therefore, `M_ω` is **H-self-adjoint**.
+Therefore, $M_{\omega}$ is **$H$-self-adjoint**.
 
-Define:
+Define
 
-```math
-a_-=
-\lambda_{\min}\left(\frac{1}{2}K_{\omega,p}\right),
-\qquad
-a_+=
-\lambda_{\max}\left(\frac{1}{2}K_{\omega,p}\right)
-```
+$$
+a_- = \lambda_{\min}\left(\frac{1}{2}K_{\omega,p}\right), \qquad a_+ = \lambda_{\max}\left(\frac{1}{2}K_{\omega,p}\right)
+$$
 
-and:
+and
 
-```math
-d_-=
-\lambda_{\min}\left(\frac{1}{2}K_{\eta}\right),
-\qquad
-d_+=
-\lambda_{\max}\left(\frac{1}{2}K_{\eta}\right)
-```
+$$
+d_- = \lambda_{\min}\left(\frac{1}{2}K_{\eta}\right), \qquad d_+ = \lambda_{\max}\left(\frac{1}{2}K_{\eta}\right)
+$$
 
-The coupling between the proportional and integral dynamics is determined by `K_ω,i`.
+The coupling between the proportional and integral dynamics is determined by $K_{\omega,i}$.
 
-The spectral bounds therefore depend on quantities such as:
+The spectral bounds therefore depend on quantities such as
 
-```math
-\left\|K_{\omega,p}^{-1}K_{\omega,i}\right\|
-```
+$$
+\left\| K_{\omega,p}^{-1}K_{\omega,i} \right\|
+$$
 
-and:
+and
 
-```math
-\left\|K_{\eta}^{-1}K_{\omega,i}\right\|
-```
+$$
+\left\| K_{\eta}^{-1}K_{\omega,i} \right\|
+$$
 
-If the coupling introduced by `K_ω,i` is sufficiently small compared with the separation between the spectra associated with `K_ω,p` and `K_η`, the eigenvalues of `M_ω` may, under suitable additional assumptions, remain real and negative:
+If the coupling introduced by $K_{\omega,i}$ is sufficiently small compared with the separation between the spectra associated with $K_{\omega,p}$ and $K_{\eta}$, the eigenvalues of $M_{\omega}$ can be guaranteed to remain real and negative:
 
-```math
-\lambda_i(M_{\omega})\in\mathbb{R},
-\qquad
-\lambda_i(M_{\omega})<0
-```
+$$
+\lambda_i(M_{\omega})\in\mathbb{R}, \qquad \lambda_i(M_{\omega})<0
+$$
 
 This produces a locally exponentially convergent and non-oscillatory response.
 
 If the coupling becomes too strong, complex eigenvalues can appear:
 
-```math
-\lambda_{1,2}=\alpha\pm j\beta,
-\qquad
-\alpha<0
-```
+$$
+\lambda_{1,2} = \alpha\pm j\beta, \qquad \alpha<0
+$$
 
-This corresponds to damped oscillatory behavior.
+which corresponds to damped oscillatory behavior.
 
 ### Practical Gain-Selection Procedure
 
-**1. Select the proportional gains:**
+1. Select the proportional gains:
 
+   $$K_{\omega,p}, \qquad K_{v,p}$$
+
+2. Select the integral-related gains:
+
+   $$K_{\omega,i}, \qquad K_{\eta}, \qquad K_{v,i}, \qquad K_{\xi}$$
+
+3. Construct the linearized attitude matrix:
+
+   
 ```math
-K_{\omega,p},\qquad K_{v,p}
+M_{\omega} = \frac{1}{2} \begin{bmatrix} K_{\omega,p} & K_{\omega,i}\\ -K_{\omega,i} & K_{\eta} \end{bmatrix}
 ```
 
-**2. Select the integral-related gains:**
+4. Construct the corresponding position matrix $M_v$.
 
-```math
-K_{\omega,i},\qquad K_{\eta},\qquad
-K_{v,i},\qquad K_{\xi}
-```
+5. Compute their eigenvalues:
 
-**3. Construct the linearized attitude matrix:**
+   $$\lambda(M_{\omega}), \qquad \lambda(M_v)$$
 
-```math
-M_{\omega}
-=
-\frac{1}{2}
-\begin{bmatrix}
-K_{\omega,p} & K_{\omega,i}\\
--K_{\omega,i} & K_{\eta}
-\end{bmatrix}
-```
+6. Select gains that produce eigenvalues with negative real parts. When a smooth non-oscillatory response is desired, select gains satisfying the conditions that keep the eigenvalues real and negative.
 
-**4. Construct the corresponding position matrix** `M_v`.
-
-**5. Compute their eigenvalues:**
-
-```math
-\lambda(M_{\omega}),\qquad \lambda(M_v)
-```
-
-**6. Select gains** that produce eigenvalues with negative real parts. When a smooth, non-oscillatory response is desired, select gains that satisfy the conditions needed to keep the eigenvalues real and negative.
 
 ---
 
 ## 9. From Kinematics to Quadrotor Commands
 
-> **Analytic baseline:** This section preserves the original derivation. Learned mode uses the predictive formulation in Section 20; these gain-based stability arguments do not prove stability of the learned controller.
+> **Analytic baseline:** this section preserves the original derivation. Learned mode uses the predictive formulation in Section 20; these gain-based stability arguments do not prove stability of the learned controller.
 
-The kinematic controller produces the desired twist:
+The kinematic controller produces the desired twist
 
-```math
+$$
 (\bar{\omega},\bar{v})
-```
+$$
 
 A real quadrotor cannot directly generate an arbitrary three-dimensional velocity. Its motion is produced through thrust and attitude control.
 
-The command variables considered in this project are:
+The command variables considered in this project are
 
-```math
-u_{\phi},\qquad
-u_{\theta},\qquad
-u_{\dot z},\qquad
-u_{\dot\psi}
-```
+$$
+u_{\phi}, \qquad u_{\theta}, \qquad u_{\dot z}, \qquad u_{\dot\psi}
+$$
 
-These correspond to roll, pitch, vertical velocity, and yaw-rate commands.
+corresponding to roll, pitch, vertical velocity, and yaw-rate commands.
 
 The horizontal motion requires an additional mapping because a quadrotor generates horizontal acceleration by **tilting its thrust vector**.
 
 ### Desired Acceleration
 
-```math
-U_p=\ddot{p}_{jd}+K_a\left(\dot{p}_j-v\right)
-```
+$$
+U_p = \ddot{p}_{jd} + K_a\left(\dot{p}_j-v\right)
+$$
 
 Here:
 
-- `p_jd` is the desired position of vehicle `j`.
-- `ṗ_jd` is the desired velocity.
-- `p̈_jd` is the desired acceleration.
-- `ṗ_j` is the actual velocity.
-- `v` is the velocity generated by the kinematic controller.
-- `K_a` is the acceleration-level feedback gain.
+- $p_{jd}$ is the desired position of vehicle $j$.
+- $\dot{p}_{jd}$ is the desired velocity.
+- $\ddot{p}_{jd}$ is the desired acceleration.
+- $\dot{p}_j$ is the actual velocity.
+- $v$ is the velocity generated by the kinematic controller.
+- $K_a$ is the acceleration-level feedback gain.
 
 ### Thrust-Vector Alignment
 
-Let `n_j` denote the thrust axis of vehicle `j`.
+Let $n_j$ denote the thrust axis of vehicle $j$.
 
-The roll-pitch quaternion is constructed as:
+The roll-pitch quaternion is constructed as
 
-```math
-\bar{q}'_{j\phi,\theta}
-=
-\left(
-n_j\times U_p,\;
-\left\langle n_j,U_p\right\rangle+\|U_p\|
-\right)
-```
+$$
+\bar{q}'_{j\phi,\theta} = \left( n_j\times U_p, \left\langle n_j,U_p\right\rangle + \|U_p\| \right)
+$$
 
 It is then normalized:
 
-```math
-\bar{q}_{j\phi,\theta}
-=
-\frac{
-\bar{q}'_{j\phi,\theta}
-}{
-\left\|\bar{q}'_{j\phi,\theta}\right\|
-}
-```
+$$
+\bar{q}_{j\phi,\theta} = \frac{\bar{q}'_{j\phi,\theta}}{\left\|\bar{q}'_{j\phi,\theta}\right\|}
+$$
 
-This quaternion represents the rotation required to align the vehicle's thrust direction with the desired acceleration direction, subject to the quaternion convention and normalization requirements used by the implementation.
+This quaternion represents the rotation required to align the vehicle's thrust direction with the desired acceleration direction.
 
 ### Yaw Composition
 
-The roll-pitch orientation does not uniquely determine yaw. Therefore, yaw is specified independently using the desired yaw quaternion `q̄_jψ`.
+The roll-pitch orientation does not uniquely determine yaw. Therefore, yaw is specified independently using the desired yaw quaternion $\bar{q}_{j\psi}$.
 
-The complete desired attitude is:
+The complete desired attitude is
 
-```math
-\bar{q}_{jd}
-=
-\bar{q}_{j\phi,\theta}
-\circ
-\bar{q}_{j\psi}
-```
+$$
+\bar{q}_{jd} = \bar{q}_{j\phi,\theta} \circ \bar{q}_{j\psi}
+$$
 
 The complete control structure is therefore:
 
-```text
-Pose error
-    |
-    v
-Kinematic controller
-    |
-    v
-Desired twist (ω̄, v̄)
-    |
-    v
-Acceleration / attitude mapping
-    |
-    v
-Quadrotor commands
-    |
-    v
-Low-level PID controller
+```
+Pose error → Kinematic controller → (ω̄, v̄) → Acceleration/attitude mapping → Quadrotor commands
 ```
 
-Visually, this block diagram matches the code layering in `simulators/leader_follower.py` (see also Section 17):
+Visually, as a block diagram matching the code layering in `simulators/leader_follower.py` (see also §17):
 
-<p align="center">
-  <img src="assets/fig6_control_cascade.png" width="820" alt="Control cascade: pose error, kinematic controller, acceleration/attitude mapping, low-level PID">
-</p>
+<p align="center"><img src="assets/fig6_control_cascade.png" width="820" alt="Control cascade: pose error, kinematic controller, acceleration/attitude mapping, low-level PID"></p>
+
+
+---
 
 ## 10. Leader-Follower Formation Law
 
