@@ -9,6 +9,7 @@ Usage:
 
 from __future__ import annotations
 import argparse
+import json
 import os
 import sys
 
@@ -19,8 +20,26 @@ if _ROOT not in sys.path:
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 from utils import load_run, position_error_metrics, attitude_error_metrics
+
+
+def trajectory_title(log: dict):
+    title = "Leader and Follower Trajectories"
+    if str(log.get("controller", "")) == "data_driven":
+        title = "Data-driven DQ Leader and Follower Trajectories"
+    if "run_options_json" in log:
+        options = json.loads(str(log["run_options_json"]))
+        frequency_key = {"lemniscate": "w_d", "potato_chip": "chip_w"}.get(options.get("trajectory"))
+        if frequency_key and float(options.get(frequency_key, 0)) > 0:
+            period = 2*np.pi/float(options[frequency_key])
+            duration = float(options.get("duration", 0))
+            coverage = "partial cycle" if duration < period - 1e-6 else f"{duration/period:g} reference cycle(s)"
+            title += f"\n{duration:g} s recorded; {period:g} s/cycle — {coverage}"
+        elif options.get("trajectory") == "bspline":
+            title += f"\nB-spline traversal: {float(options.get('duration', 0)):g} s"
+    return title
 
 
 def plot_trajectories(log: dict, save_path: str | None):
@@ -31,9 +50,39 @@ def plot_trajectories(log: dict, save_path: str | None):
     ax.plot(log["follower_pos"][:, 0], log["follower_pos"][:, 1], "b-", label="Follower Actual")
     ax.set_xlabel("X [m]")
     ax.set_ylabel("Y [m]")
-    ax.set_title("Leader and Follower Trajectories")
+    ax.set_title(trajectory_title(log))
     ax.legend()
     ax.axis("equal")
+    fig.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=150)
+    return fig
+
+
+def plot_trajectories_3d(log: dict, save_path: str | None):
+    """Preserve altitude when displaying spatial paths such as potato-chip."""
+    fig = plt.figure(figsize=(8, 7))
+    ax = fig.add_subplot(111, projection="3d")
+    for key, style, label in (
+        ("leader_pos_d", "m--", "Leader Desired"),
+        ("follower_pos_d", "c--", "Follower Desired"),
+        ("leader_pos", "r-", "Leader Actual"),
+        ("follower_pos", "b-", "Follower Actual"),
+    ):
+        pos = log[key]
+        ax.plot(pos[:, 0], pos[:, 1], pos[:, 2], style, label=label)
+    ax.set_xlabel("X [m]")
+    ax.set_ylabel("Y [m]")
+    ax.set_zlabel("Z [m]")
+    for axis in (ax.xaxis, ax.yaxis, ax.zaxis):
+        axis.set_major_locator(MaxNLocator(nbins=3))
+    # Equal scale in metres; the small altitude ripple is not exaggerated.
+    positions = np.concatenate([log[key] for key in
+                                ("leader_pos_d", "follower_pos_d", "leader_pos", "follower_pos")])
+    ax.set_box_aspect(np.maximum(np.ptp(positions, axis=0), 0.1))
+    ax.view_init(elev=25, azim=-55)
+    ax.set_title(trajectory_title(log))
+    ax.legend(loc="upper left")
     fig.tight_layout()
     if save_path:
         fig.savefig(save_path, dpi=150)
@@ -93,6 +142,8 @@ def main():
     base = os.path.splitext(os.path.basename(args.run))[0]
 
     plot_trajectories(log, save_path=os.path.join(out_dir, f"{base}_trajectories.png"))
+    if "run_options_json" in log and json.loads(str(log["run_options_json"])).get("trajectory") in ("potato_chip", "bspline"):
+        plot_trajectories_3d(log, save_path=os.path.join(out_dir, f"{base}_trajectories_3d.png"))
     plot_axis_tracking(log, "leader", save_path=os.path.join(out_dir, f"{base}_leader.png"))
     plot_axis_tracking(log, "follower", save_path=os.path.join(out_dir, f"{base}_follower.png"))
     print_metrics_tables(log)

@@ -15,8 +15,8 @@ See [training, results, limitations, and launch commands](docs/data_driven.md).
 `python scripts/run_ui.py`. The compact panel launches separate simulator
 windows; it no longer attempts to embed native windows. PyBullet, MuJoCo and
 Gazebo offer learned control with a trained response model. Kinematic mode
-uses analytic control and a separate 3D reference plot. ArduPilot documentation
-and results will be added after its separate integration is merged.
+uses analytic control and a separate 3D reference plot. ArduPilot SITL is also
+listed, with installation requirements described in [its guide](ardupilot/README.md).
 Leader speed, follower gap, route radius, and flight altitude can be adjusted
 while the simulation runs; applied values are displayed as they change.
 See [desktop control details](docs/ui_controls.md). On Windows, Gazebo and ROS run inside WSL (Ubuntu 24.04 by
@@ -24,6 +24,16 @@ default); see [Gazebo setup](gazebo/README.md) for the required packages and
 WSL settings.
 Train first with `python scripts/train_data_driven.py --simulator pybullet`,
 then run `python scripts/run_experiment.py --simulator pybullet --gui`.
+
+**ArduPilot + Gazebo live demo:** see [setup and run instructions](ardupilot/README.md).
+After one-time installation, `bash scripts/run_ardupilot.sh 60` launches two
+ArduCopter SITLs, takes off, shows 60 seconds of leader–follower flight in
+Gazebo with red/blue trails, then lands and stops. VS Code tasks also prompt
+for duration. ArduPilot uses its own SITL-identified dynamics model inside a
+dual-quaternion predictive controller (`--controller data_driven`, which
+`learned` and the default `auto` select on ArduPilot); ArduPilot handles
+low-level flight control. The same controller is available from the desktop UI.
+See [ArduPilot data generation, training and validation](docs/data_driven.md#arducopter-sitl-data-driven-dual-quaternion-formation-control).
 
 **Supporting course concepts:** See [the runnable guide](docs/course_concepts.md)
 for B-spline and LERP/SLERP references, optional position Kalman filtering,
@@ -1081,6 +1091,8 @@ See [the command PDF](output/pdf/simulator_running_commands.pdf) for the earlier
 
 ## 20. Data-Driven Dual-Quaternion Control
 
+> **Backend scope:** Sections 20.1–20.4 describe `LearnedDQController` in `dq_control/learned_control.py`, used by PyBullet, MuJoCo and the standalone Gazebo backend. ArduPilot uses `DataDrivenDQController` in `dq_control/data_driven.py`, described in Section 20.5. Both use simulator-trained prediction and dual-quaternion poses, but their state features, command interfaces, pose-error conventions and optimizers differ. The training counts and 24-step horizon below belong to the first implementation, not automatically to ArduPilot.
+
 ### 20.1 What is learned, and why it changes the implementation
 
 The original controller calculates commands from selected gains and pose error. The current learned controller first measures how a simulator responds to commands, fits that response, and uses the fitted model inside every command calculation. Removing the model prevents learned mode from starting: it is not an optional graph or a parallel classroom demonstration.
@@ -1180,6 +1192,53 @@ $$
 
 These weights, horizon and regularization values are designed parameters, not learned coefficients. SciPy's bounded least-squares solver chooses six command values. Only the current command is applied; the next measured state triggers a new solve. This is a constant-input receding-horizon controller with a local pose approximation, not a full nonlinear dual-quaternion optimization. A failed solve raises an error instead of silently switching to analytic control.
 
+### 20.5 ArduPilot: shared concepts and implementation differences
+
+ArduPilot preserves the dual-quaternion pose construction from Sections 3.4–3.5 and the desired-frame pose-error convention from Section 5. The leader tracks a selected reference, while the follower targets an earlier pose along the leader's measured chronological path. Its high-level controller uses a response model identified from ArduCopter SITL recordings; ArduPilot supplies the low-level attitude and motor control.
+
+| Detail | PyBullet / MuJoCo / standalone Gazebo | ArduPilot SITL + Gazebo |
+|---|---|---|
+| Controller source | `dq_control/learned_control.py` | `dq_control/data_driven.py` |
+| Learned response | Eight-state affine response model, A/B/c | Feature-based predictor of velocity, yaw rate and tilt |
+| Optimized commands | Three linear velocities and three body angular rates | Three world linear velocities and one Euler yaw rate |
+| Pose error | Current-frame relative pose, current inverse times desired | Desired-frame relative pose, target inverse times predicted |
+| Orientation residual | Shortest rotation vector | Sign-adjusted vector part of the relative quaternion |
+| Prediction | 24 response steps with a local first-order pose forecast | Five model steps by default, reconstructing a unit dual-quaternion pose at each step |
+| Optimization | Bounded linear least squares | Bounded nonlinear least squares over the learned rollout |
+| Saved model | `models/<backend>_response.npz` | `models/ardupilot_dq_dynamics.npz` |
+
+For ArduPilot, a candidate command is rolled forward through the learned model to produce a predicted future pose. The desired pose is also advanced over that horizon. The pose error used in the objective is
+
+$$
+Q_e=Q_{\mathrm{target}}^*\circ Q_{\mathrm{predicted}}.
+$$
+
+The shared `pose_error(predicted, target)` function extracts
+
+$$
+\bar q_e=\bar q_{\mathrm{target}}^*\circ\bar q_{\mathrm{predicted}},
+\qquad
+p_e=R_{\mathrm{target}}^{\mathsf T}(p_{\mathrm{predicted}}-p_{\mathrm{target}}).
+$$
+
+Thus the translation error is expressed in the target body frame. The optimizer penalizes this position error, the sign-adjusted quaternion vector part, velocity/yaw-rate mismatch and command changes. ArduPilot's orientation residual is not the rotation-vector formula in Section 20.3.
+
+When predicted and target poses match, the error is the identity:
+
+$$
+Q_e=1+\varepsilon0.
+$$
+
+Section 20.3 instead uses current inverse times desired. For the same pose pair, the two relative transformations are inverses; both become the identity at a match. Their frame conventions must remain consistent with the rest of their respective controllers.
+
+The ArduPilot command vector is
+
+$$
+u=\begin{bmatrix}v_x^w & v_y^w & v_z^w & \dot\psi\end{bmatrix}^{\mathsf T}.
+$$
+
+These commands are sent through MAVLink Guided mode. The learned predictor uses heading-relative velocity, yaw rate and attitude-derived tilt features; it is not the eight-state, six-input model above. Training sample counts, model timestep and validation results must be taken from the ArduPilot training artifacts rather than copied from the other backends. See [ArduPilot setup and operation](ardupilot/README.md) and [its training and validation details](docs/data_driven.md#arducopter-sitl-data-driven-dual-quaternion-formation-control).
+
 ## 21. Current Workflow and Course Concepts
 
 ### 21.1 One complete control cycle
@@ -1223,7 +1282,7 @@ The optional Gaussian measurement-noise setting defaults to zero. Training excit
 
 The learned model approximates the simulator plus its low-level controller near the collected operating conditions. It is fixed during flight and should be retrained after relevant physics or low-level changes. A fitted model is required separately for each backend; matching backend and timestep checks do not guarantee a model remains suitable after every code change.
 
-The analytic eigenvalue derivation is retained for comparison, not as a proof of stability of the learned controller. Command bounds and path gaps do not guarantee collision avoidance. Recorded improvements are simulation measurements, not real-flight evidence. Gazebo's roll/pitch bound was tuned using development tracking evaluations, so those evaluations are not an untouched final test set. ArduPilot integration documentation and results are deferred to a later update.
+The analytic eigenvalue derivation is retained for comparison, not as a proof of stability of the learned controller. Command bounds and path gaps do not guarantee collision avoidance. Recorded improvements are simulation measurements, not real-flight evidence. Gazebo's roll/pitch bound was tuned using development tracking evaluations, so those evaluations are not an untouched final test set. ArduPilot is integrated in this branch; its controller differences are documented in Section 20.5. Its separate guide and validation artifacts describe ArduPilot-specific measurements.
 
 ---
 
@@ -1284,4 +1343,4 @@ This backend provides a reference for pose integration and path-following behavi
 
 The historical [60-second validation summary](results/learned_validation/summary.json) records learned position RMSE of 0.01060 m / 0.01404 m for PyBullet and 0.02136 m / 0.03425 m for Gazebo (leader / follower). These runs predate the latest UI changes and do not validate the current viewer appearance. Older MuJoCo values in that summary predate yaw retraining and are not the current MuJoCo result.
 
-The recorded automated-check status before this README edit was **38 passed, 1 skipped**, with a CVXPY backend-fallback warning. This documentation update does not constitute a new simulation or test run. Real-flight validation and ArduPilot results are not included.
+The recorded automated-check status before this README edit was **38 passed, 1 skipped**, with a CVXPY backend-fallback warning. This documentation update does not constitute a new simulation or test run. Real-flight validation is not included. The tables above cover the original backends; consult the ArduPilot guide and its validation artifacts for ArduPilot-specific results. The historical test count above is not a fresh verification of the merged branch.

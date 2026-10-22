@@ -1,5 +1,6 @@
 # Core numerics
-numpy>=1.23,<2.0
+numpy>=1.23,<2.0; python_version < "3.13"
+numpy>=2.1; python_version >= "3.13"
 scipy>=1.9
 
 # Config + plotting + logging
@@ -17,5 +18,5 @@ pytest>=7.2
 # Multi-simulator notes
 # - PyBullet backend: gym-pybullet-drones is an external sibling repo.
 # - Gazebo backend: Gazebo Sim + ROS 2 Jazzy + ros_gz are system dependencies.
-# - MuJoCo backend: reserved in the registry; install mujoco when implemented.
-# - ArduPilot backend: reserved in the registry; the ArduPilot repo is cloned as a sibling.
+# - MuJoCo backend: install mujoco separately.
+# - ArduPilot backend: requirements-ardupilot.txt + built SITL and Gazebo plugin.

@@ -15,6 +15,10 @@ import numpy as np
 from dq_control import Quaternion
 
 
+class SimulationStopped(Exception):
+    """Raised when a user closes a simulator's native viewer."""
+
+
 @dataclass
 class DroneState:
     """Normalized simulator-independent vehicle state."""
@@ -69,13 +73,32 @@ class SimConfig:
     drone_model: object = None
 
     x_offset: float = 1.85
-    follower_offset_mode: str = "world"
+    follower_offset_mode: str = "path"
+    follow_distance: float = 0.8
+    trails: bool = True
     follower_heading_source: str = "velocity"
     follower_heading_smoothing: float = 0.15
     follower_vel_smoothing: float = 1.0
 
     output_folder: str = "results"
     simulator: str = "pybullet"
+    gazebo_render_engine: str = "ogre2"
+    position_noise_std: float = 0.0
+    kalman: bool = False
+    kalman_measurement_std: float = 0.03
+    kalman_acceleration_std: float = 0.5
+    seed: int = 0
+    controller: str = "analytic"  # analytic | learned | data_driven ("analytical" accepted)
+    learned_model: str | None = None  # LearnedResponse model for pybullet/mujoco/gazebo
+    dynamics_model: str | None = None  # IdentifiedDynamics model for ArduPilot (data_driven)
+    excitation: float = 0.0
+    ardupilot_path: str | None = None
+    ardupilot_gazebo_path: str | None = None
+    ardupilot_startup_timeout: float = 120.0
+    ardupilot_land_timeout: float = 60.0
+    ardupilot_max_speed: float = 2.0
+    ardupilot_low_resource: bool = True
+    ardupilot_min_separation: float = .65
 
     def control_timestep(self) -> float:
         if self.ctrl_freq <= 0:
@@ -87,6 +110,15 @@ class SimulationBackend(ABC):
     """Minimal interface implemented by every simulator backend."""
 
     name: str
+
+    @property
+    def elapsed_time(self) -> float | None:
+        """Optional flight clock, measured after startup/takeoff in simulator time."""
+        return None
+
+    def draw_trails(self, positions) -> None:
+        """Optional visualization of actual vehicle motion."""
+        pass
 
     @abstractmethod
     def reset(self, initial_xyzs: np.ndarray, initial_rpys: np.ndarray) -> None:

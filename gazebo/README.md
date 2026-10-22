@@ -28,6 +28,34 @@ sudo apt install ros-jazzy-ros-gz ros-jazzy-actuator-msgs
 The Python process also needs `rclpy`, `geometry_msgs`, and the normal ROS 2
 Python runtime from the sourced Jazzy installation.
 
+## Windows desktop UI
+
+When the project UI runs with Windows Python, the Gazebo backend starts its
+simulation worker inside WSL and relays states and motor commands to the UI.
+This avoids trying to import Linux ROS packages into Windows Python. The
+default distro is `Ubuntu-24.04`; enable WSLg for the native Gazebo window and
+make sure the project drive is mounted in WSL (the standard `/mnt/<drive>`
+mount is used). The UI worker sources `/opt/ros/jazzy/setup.bash` automatically.
+
+To use a differently named distro or ROS installation, set these Windows
+environment variables before launching the UI:
+
+```powershell
+$env:GAZEBO_WSL_DISTRO = "Your-Ubuntu-Distro"
+$env:GAZEBO_ROS_SETUP = "/opt/ros/jazzy/setup.bash"
+$env:GAZEBO_WSL_MOUNT_ROOT = "/mnt"
+```
+
+Install the system dependencies inside that distro:
+
+```bash
+sudo apt update
+sudo apt install ros-jazzy-ros-gz ros-jazzy-actuator-msgs python3-numpy python3-yaml
+```
+
+The Gazebo viewer opens as a native WSLg window. CLI runs started inside WSL
+should source ROS first as shown below; the Windows UI worker does this itself.
+
 ## How the backend works
 
 The normal formation loop stays in Python:

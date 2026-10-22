@@ -1,0 +1,2 @@
+# Optional convex optimization extension; install alongside requirements.txt.
+cvxpy>=1.4

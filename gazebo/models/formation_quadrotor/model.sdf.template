@@ -37,7 +37,7 @@
       <visual name="rotor_visual"><geometry><cylinder><radius>0.045</radius><length>0.015</length></cylinder></geometry></visual>
     </link>
     <joint name="rotor_0_joint" type="revolute">
-      <pose>0.20 0.20 0.03 0 0 0</pose>
+      <pose relative_to="__model__">0.20 0.20 0.03 0 0 0</pose>
       <parent>base_link</parent><child>rotor_0</child>
       <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
     </joint>
@@ -51,7 +51,7 @@
       <visual name="rotor_visual"><geometry><cylinder><radius>0.045</radius><length>0.015</length></cylinder></geometry></visual>
     </link>
     <joint name="rotor_1_joint" type="revolute">
-      <pose>-0.20 0.20 0.03 0 0 0</pose>
+      <pose relative_to="__model__">-0.20 0.20 0.03 0 0 0</pose>
       <parent>base_link</parent><child>rotor_1</child>
       <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
     </joint>
@@ -65,7 +65,7 @@
       <visual name="rotor_visual"><geometry><cylinder><radius>0.045</radius><length>0.015</length></cylinder></geometry></visual>
     </link>
     <joint name="rotor_2_joint" type="revolute">
-      <pose>-0.20 -0.20 0.03 0 0 0</pose>
+      <pose relative_to="__model__">-0.20 -0.20 0.03 0 0 0</pose>
       <parent>base_link</parent><child>rotor_2</child>
       <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
     </joint>
@@ -79,7 +79,7 @@
       <visual name="rotor_visual"><geometry><cylinder><radius>0.045</radius><length>0.015</length></cylinder></geometry></visual>
     </link>
     <joint name="rotor_3_joint" type="revolute">
-      <pose>0.20 -0.20 0.03 0 0 0</pose>
+      <pose relative_to="__model__">0.20 -0.20 0.03 0 0 0</pose>
       <parent>base_link</parent><child>rotor_3</child>
       <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
     </joint>
@@ -97,8 +97,8 @@
     <plugin filename="gz-sim-multicopter-motor-model-system"
             name="gz::sim::systems::MulticopterMotorModel">
       <robotNamespace>__ROBOT_NAMESPACE__</robotNamespace>
-      <jointName>__ROBOT_NAMESPACE__/rotor_0_joint</jointName>
-      <linkName>__ROBOT_NAMESPACE__/rotor_0</linkName>
+      <jointName>rotor_0_joint</jointName>
+      <linkName>rotor_0</linkName>
       <turningDirection>ccw</turningDirection>
       <timeConstantUp>0.0125</timeConstantUp>
       <timeConstantDown>0.025</timeConstantDown>
@@ -117,9 +117,9 @@
     <plugin filename="gz-sim-multicopter-motor-model-system"
             name="gz::sim::systems::MulticopterMotorModel">
       <robotNamespace>__ROBOT_NAMESPACE__</robotNamespace>
-      <jointName>__ROBOT_NAMESPACE__/rotor_1_joint</jointName>
-      <linkName>__ROBOT_NAMESPACE__/rotor_1</linkName>
-      <turningDirection>ccw</turningDirection>
+      <jointName>rotor_1_joint</jointName>
+      <linkName>rotor_1</linkName>
+      <turningDirection>cw</turningDirection>
       <timeConstantUp>0.0125</timeConstantUp>
       <timeConstantDown>0.025</timeConstantDown>
       <maxRotVelocity>1100.0</maxRotVelocity>
@@ -137,9 +137,9 @@
     <plugin filename="gz-sim-multicopter-motor-model-system"
             name="gz::sim::systems::MulticopterMotorModel">
       <robotNamespace>__ROBOT_NAMESPACE__</robotNamespace>
-      <jointName>__ROBOT_NAMESPACE__/rotor_2_joint</jointName>
-      <linkName>__ROBOT_NAMESPACE__/rotor_2</linkName>
-      <turningDirection>cw</turningDirection>
+      <jointName>rotor_2_joint</jointName>
+      <linkName>rotor_2</linkName>
+      <turningDirection>ccw</turningDirection>
       <timeConstantUp>0.0125</timeConstantUp>
       <timeConstantDown>0.025</timeConstantDown>
       <maxRotVelocity>1100.0</maxRotVelocity>
@@ -157,8 +157,8 @@
     <plugin filename="gz-sim-multicopter-motor-model-system"
             name="gz::sim::systems::MulticopterMotorModel">
       <robotNamespace>__ROBOT_NAMESPACE__</robotNamespace>
-      <jointName>__ROBOT_NAMESPACE__/rotor_3_joint</jointName>
-      <linkName>__ROBOT_NAMESPACE__/rotor_3</linkName>
+      <jointName>rotor_3_joint</jointName>
+      <linkName>rotor_3</linkName>
       <turningDirection>cw</turningDirection>
       <timeConstantUp>0.0125</timeConstantUp>
       <timeConstantDown>0.025</timeConstantDown>

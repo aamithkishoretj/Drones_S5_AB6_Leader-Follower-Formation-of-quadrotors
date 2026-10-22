@@ -1,0 +1,13 @@
+.venv-gazebo/
+.venv/
+__pycache__/
+*.pyc
+tmp/
+results/gazebo_runtime_*.log
+models/*_before_*.npz
+.pytest_cache/
+results/ardupilot_runtime/
+results/**/ardupilot_runtime/
+# Generated trial runs; curated validation examples live in ardupilot_validation.
+/results/ardupilot_*.npz
+/results/ardupilot_*.png
