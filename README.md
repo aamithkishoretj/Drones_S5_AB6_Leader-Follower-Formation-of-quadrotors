@@ -428,9 +428,7 @@ $$
 
 where
 
-$$
-M_{\omega} = \frac{1}{2} \begin{bmatrix} K_{\omega,p} & K_{\omega,i}\\ -K_{\omega,i} & K_{\eta} \end{bmatrix}
-$$
+$$M_{\omega} = \frac{1}{2} \begin{bmatrix} K_{\omega,p} & K_{\omega,i} \cr -K_{\omega,i} & K_{\eta} \end{bmatrix}$$
 
 Since each gain matrix is 3×3, $M_{\omega}$ is a 6×6 matrix.
 
