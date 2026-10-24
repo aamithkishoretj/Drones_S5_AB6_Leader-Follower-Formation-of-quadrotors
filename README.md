@@ -4,13 +4,6 @@
 
 # AB6: Introduction to Drones — Leader-Follower Formation of Two Quadrotors
 
-**Data-driven control is now the default command-line workflow.** Simulator
-state/action/next-state recordings train a separate response model for each
-backend. A predictive optimizer uses that model and dual-quaternion pose error
-to choose commands during every flight step. The original controller is retained
-as `--controller analytic` for data collection and comparisons.
-See [training, results, limitations, and launch commands](docs/data_driven.md).
-
 **Desktop simulation UI:** Launch the interactive control panel with
 `python scripts/run_ui.py`. The compact panel launches separate simulator
 windows; it no longer attempts to embed native windows. PyBullet, MuJoCo and
