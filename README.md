@@ -355,6 +355,10 @@ Q_2 \circ Q_1 = \bar{q}_2 \circ \bar{q}_1 + \varepsilon\, \frac{1}{2} \left( \ba
 
 that is, attitude $`\bar{q}_2 \circ \bar{q}_1`$ and position $`p_2 + R(\bar{q}_2)\, p_1`$. The conjugate $`Q^{*}`$ has attitude $`\bar{q}^{*}`$ and position $`-R(\bar{q})^{\mathsf T} p`$, so it is the inverse pose. These are the classical rules from Section 2, obtained from one product.
 
+<p align="center"><img src="assets/fig8_dual_quaternion_pose.png" width="900" alt="World frame, translation p, rotation by theta about axis n, and the resulting body frame described by Q"></p>
+
+<p align="center"><em>Figure 1. A unit dual quaternion as a rigid-body pose: a translation followed by a rotation about an axis.</em></p>
+
 ---
 
 ## 4. Vehicle Kinematics in Dual Quaternions
@@ -646,6 +650,10 @@ Let $`n_j = e_z`$ be the thrust axis of vehicle $`j`$ in its body frame. The sho
 
 It is well defined whenever $`U_p`$ is not directed straight down. At hover, $`U_p = g\, e_z`$ and $`\bar{q}_{j\phi\theta}`$ is the identity: no tilt.
 
+<p align="center"><img src="assets/fig9_thrust_alignment.png" width="900" alt="Side view of a tilted quadrotor whose thrust axis is aligned with the desired acceleration U_p"></p>
+
+<p align="center"><em>Figure 2. Thrust-vector alignment: the drone tilts until its thrust axis points along the desired acceleration.</em></p>
+
 ### Yaw composition
 
 The roll-pitch rotation does not determine yaw, so yaw is specified separately by the desired yaw quaternion $`\bar{q}_{j\psi}`$. Because $`\bar{q}_{j\psi}`$ rotates about $`n_j`$, it does not change the thrust direction, and the complete desired attitude is
@@ -663,6 +671,8 @@ Pose error → Kinematic controller → (ω̄, v̄) → Acceleration/attitude ma
 The block diagram below shows this layering as implemented around `simulators/leader_follower.py` (see also Section 17):
 
 <p align="center"><img src="assets/fig6_control_cascade.png" width="820" alt="Control cascade: pose error, kinematic controller, acceleration/attitude mapping, low-level PID"></p>
+
+<p align="center"><em>Figure 3. Control cascade from pose error to motor commands.</em></p>
 
 ---
 
@@ -708,6 +718,10 @@ Q_{Fd} = \bar{q}_{Fd} + \varepsilon\, \frac{1}{2}\, \bar{p}_{Fd} \circ \bar{q}_{
 ```
 
 This reference is passed to the same selected controller as the leader's reference. At a figure-eight crossing, the chronological history determines which segment to follow; the code does not jump to the nearest unrelated crossing segment.
+
+<p align="center"><img src="assets/fig7_formation_geometry.png" width="900" alt="Leader and follower frames on the recorded leader trail, with the arc-length gap and the shorter straight-line gap"></p>
+
+<p align="center"><em>Figure 4. Path-following formation: the follower target lies a fixed arc length back along the leader's recorded trail.</em></p>
 
 `dq_control/path_following.py` implements this behavior. The initial history contains a seed segment between the two starting positions. Live-control runs retain extra history, so increasing the gap can recover older points. Until sufficient history exists, the target is limited to the available segment. The gap $`d_{\mathrm{gap}}`$ is a reference arc length, not a guaranteed physical separation or collision avoidance: on tight curves the straight-line distance between the drones is shorter than $`d_{\mathrm{gap}}`$.
 
@@ -807,6 +821,7 @@ scripts/
   run_ui.py, run_experiment.py        # desktop and CLI entry points
   train_data_driven.py                # collection, fitting and evaluation
   plot_results.py, analyze_course_concepts.py
+  make_readme_figures.py              # regenerates the README schematic figures
   setup_simulators.py                 # clones external simulator repositories
   setup_ardupilot.sh, check_ardupilot.py, run_ardupilot.sh
   collect_ardupilot_data.py, train_ardupilot_model.py, validate_ardupilot_model.py
