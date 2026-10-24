@@ -214,7 +214,7 @@ Other key operations:
 A **unit-norm quaternion** ($\|\bar{q}\|=1$) represents a rotation in 3D space, analogous to how a unit complex number represents a rotation in 2D. If $\bar{q}$ is the unit quaternion rotating from body frame $b$ to inertial frame $i$, a vector expressed in the body frame transforms to the inertial frame via the **sandwich product**:
 
 ```math
-\bar p^i = \bar q \circ \bar p^b \circ \bar q^*
+\bar p^i = \bar q \circ \bar{p}_b \circ \bar q^*
 ```
 
 Note that $\bar{q}$ and $-\bar{q}$ represent the *same* rotation — this "double cover" is a well-known and harmless property of quaternions.
@@ -322,13 +322,13 @@ Let $Q$ be the vehicle's **current** pose and $Q_d$ the **desired** pose. The **
 ```math
 \delta Q=Q_d^{*}\circ Q
 =\delta\bar{q}+\frac{\varepsilon}{2}
-\left(\delta\bar{p}^{b}\circ\delta\bar{q}\right)
+\left(\delta\bar{p}_b\circ\delta\bar{q}\right)
 ```
 
 where:
 - $\delta \bar{q} = \bar{q}_d^* \circ \bar{q}$ is the **attitude error** (a quaternion — how far the current orientation is from the desired one),
 - $\delta p = p - p_d$ is the raw **position error**, and
-- $\delta \bar{p}^{b} = \bar{q}_d^* \circ \delta \bar{p} \circ \bar{q}_d$ is that position error expressed **in the desired body frame** — the natural frame to regulate it in.
+- $\delta \bar{p}_b = \bar{q}_d^* \circ \delta \bar{p} \circ \bar{q}_d$ is that position error expressed **in the desired body frame** — the natural frame to regulate it in.
 
 The **control goal** is simply: drive $\delta Q \to  1$ (the identity dual quaternion), i.e., make the attitude-error vector and position error approach zero (the full error quaternion approaches the identity), meaning the vehicle's actual pose converges to the desired pose. Both position and attitude errors are captured by this one object.
 
@@ -347,10 +347,12 @@ K_{\omega,p}, K_{v,p}, K_{\omega,i}, K_{v,i}, K_{\eta}, K_{\xi} \in \mathbb{R}^{
 
 For the integral-controller analysis, the gain matrices are symmetric and negative definite. The proportional-only preset disables the integral terms with zero matrices and is a separate special case.
 
+For a three-dimensional vector $a$, $\mathrm{pure}(a)$ denotes its pure quaternion, whose scalar part is zero. This keeps the following equations compact. The body-frame label $b$ is written as a subscript; it is a frame label, not a vector component.
+
 ### Angular velocity command
 
 ```math
-\bar{\omega} = \delta\bar{q}^{*} \circ \bar{\omega}_d \circ \delta\bar{q} + \left( \mathrm{sgn}\!(\delta q_0) \left( K_{\omega,p}\,\delta q + \eta_0 K_{\omega,i}\,\eta \right),  0 \right)
+\bar{\omega} = \delta\bar{q}^{*} \circ \bar{\omega}_d \circ \delta\bar{q} + \mathrm{pure}\!\left[\mathrm{sgn}\!(\delta q_0)\left(K_{\omega,p}\,\delta q+\eta_0 K_{\omega,i}\,\eta\right)\right]
 ```
 
 Here:
@@ -368,15 +370,15 @@ The implementation uses $\mathrm{sgn}(0)=1$. Here $K_{\omega,i}$ is a gain matri
 ### Linear velocity command
 
 ```math
-v=v_d+R(\bar{q}_d)\left(K_{v,p}\,\delta p^{b}+K_{v,i}\,\xi\right)
+v=v_d+R(\bar{q}_d)\left(K_{v,p}\,\delta p_b+K_{v,i}\,\xi\right)
 ```
 
-Here $v,v_d\in\mathbb{R}^3$ are world-frame velocity vectors, $R(\bar{q}_d)$ is a 3-by-3 rotation matrix, and $\delta p^{b}$ is the position error in the desired body frame. Their pure-quaternion forms are $\bar{v}=(v,0)$ and $\bar{v}_d=(v_d,0)$.
+Here $v,v_d\in\mathbb{R}^3$ are world-frame velocity vectors, $R(\bar{q}_d)$ is a 3-by-3 rotation matrix, and $\delta p_b$ is the position error in the desired body frame. Their pure-quaternion forms are $\bar{v}=(v,0)$ and $\bar{v}_d=(v_d,0)$.
 
 ### Attitude integral state
 
 ```math
-\dot{\bar{\eta}} = \frac{1}{2} \bar{\eta} \circ \left( -\lvert\delta q_0\rvert\, K_{\omega,i}\,\delta q + \mathrm{sgn}\!(\eta_0) K_{\eta}\,\eta,  0 \right)
+\dot{\bar{\eta}} = \frac{1}{2} \bar{\eta} \circ \mathrm{pure}\!\left[-\lvert\delta q_0\rvert\,K_{\omega,i}\,\delta q+\mathrm{sgn}\!(\eta_0)K_{\eta}\,\eta\right]
 ```
 
 The $K_{\eta}\,\eta$ term acts as a **forgetting/leakage term**, preventing the integral state from growing without bound.
@@ -384,7 +386,7 @@ The $K_{\eta}\,\eta$ term acts as a **forgetting/leakage term**, preventing the 
 ### Position integral state
 
 ```math
-\dot{\xi} = -K_{v,i}\delta p^{b} + K_{\xi}\xi
+\dot{\xi} = -K_{v,i}\delta p_b + K_{\xi}\xi
 ```
 
 The first term accumulates the position error, while $K_{\xi}\xi$ provides the corresponding forgetting mechanism.
@@ -392,7 +394,7 @@ The first term accumulates the position error, while $K_{\xi}\xi$ provides the c
 ### Interpretation
 
 - The **feedforward** terms $\bar{\omega}_d$ and $\bar{v}_d$ provide the velocity required by the desired trajectory.
-- The **proportional** terms $K_{\omega,p}\,\delta q$ and $K_{v,p}\delta p^{b}$ respond to the instantaneous pose error.
+- The **proportional** terms $K_{\omega,p}\,\delta q$ and $K_{v,p}\delta p_b$ respond to the instantaneous pose error.
 - The **integral** terms involving $\eta$ and $\xi$ accumulate persistent tracking errors.
 - The $K_{\eta}$ and $K_{\xi}$ terms prevent excessive accumulation of the integral states.
 
@@ -1086,7 +1088,7 @@ See [the command PDF](output/pdf/simulator_running_commands.pdf) for the earlier
 | $Q$ | A dual quaternion, $Q=\bar r + \varepsilon\bar s$ | §3.4 |
 | $\mathcal P(Q), \mathcal D(Q)$ | Principal part / dual part of a dual quaternion | §3.4 |
 | $\Omega(\bar\omega,\bar v)$ | The twist dual quaternion packaging angular velocity $\bar\omega$ and linear velocity $\bar v$ | §4 |
-| $\delta Q, \delta\bar q, \delta p, \delta p^{b}$ | Pose error, attitude error, raw position error, position error expressed in the desired body frame | §5 |
+| $\delta Q, \delta\bar q, \delta p, \delta p_b$ | Pose error, attitude error, raw position error, position error expressed in the desired body frame | §5 |
 | $K_{\omega,p}, K_{v,p}$ | Proportional gain matrices (attitude, position) | §6 |
 | $K_{\omega,i}, K_{v,i}$ | Integral-coupling gain matrices (attitude, position) | §6 |
 | $K_\eta, K_\xi$ | Integral-state "forgetting"/leakage gain matrices | §6 |
@@ -1116,9 +1118,9 @@ The leader's route remains a chosen reference. The training recordings describe 
 Let $R$ rotate body-frame vectors into the world frame. The eight response-state components and six command components are
 
 ```math
-x_k=\begin{bmatrix}R_k^{\mathsf T}v_k^{w}\\\omega_k^{b}\\(R_k^{\mathsf T}e_z)_{1:2}\end{bmatrix}\in\mathbb R^8,
+x_k=\begin{bmatrix}R_k^{\mathsf T}v_k^{w}\\\omega_{k,b}\\(R_k^{\mathsf T}e_z)_{1:2}\end{bmatrix}\in\mathbb R^8,
 \qquad
-u_k=\begin{bmatrix}R_k^{\mathsf T}v_{k,\mathrm{cmd}}^{w}\\\omega_{k,\mathrm{cmd}}^{b}\end{bmatrix}\in\mathbb R^6.
+u_k=\begin{bmatrix}R_k^{\mathsf T}v_{k,\mathrm{cmd}}^{w}\\\omega_{k,\mathrm{cmd},b}\end{bmatrix}\in\mathbb R^6.
 ```
 
 Here $e_z=(0,0,1)^{\mathsf T}$ is the unit world vertical. Its first two body-frame components describe tilt; these are not acceleration measurements. Position is represented separately by the dual-quaternion pose.
